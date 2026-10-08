@@ -39,7 +39,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `scripts/fetch_data.py` (mirror fallback, md5 check, resumable or skip-if-present, extract to `data/LibriSpeech/`); `voiceroom/eval/corpus.py` (`Corpus` protocol: speakers → utterances with duration; `LibriSpeechCorpus(root)`; `SynthCorpus(n_speakers, seed)` built on `synth`); `scripts/smoke/smoke_corpus.py` always checks SynthCorpus and checks LibriSpeechCorpus (≥ 40 speakers for dev-clean) only when data is present, otherwise SKIP for that part; the fetch is run once in the container with counts recorded in summary.md; `make check` green.
   depends: T-002
 
-- [ ] T-008 | M0 | Build synthetic conversations with ground-truth segments
+- [x] T-008 | M0 | Build synthetic conversations with ground-truth segments
   goal: Generate reproducible multi-speaker "conversations" (2–4 speakers, pauses, optional noise) with ground-truth segments from any Corpus.
   accept: `voiceroom/eval/conversations.py` (`make_conversation(corpus, speakers, n_turns, pause_range, snr_db|None, seed) -> Conversation(audio, segments[(start, end, speaker)])`, plus enrollment/test utterance split so enrollment audio never appears in conversations, and save/load as wav + JSON under `data/`); `scripts/smoke/smoke_conversations.py` on SynthCorpus checks that segments do not overlap and are sorted, segment audio matches the source utterances, pauses are within range, the same seed gives identical output, and the enrollment/test split is disjoint; `make check` green.
   depends: T-007
