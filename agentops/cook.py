@@ -14,8 +14,10 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
+import uuid
 import urllib.parse
 import urllib.request
 
@@ -209,37 +211,60 @@ def handle(state, msgs):
                    "Any other text: answers a blocked task (prefix 'T-007:' if several are blocked), "
                    "plan feedback while a plan awaits approval, otherwise a note in .work/inbox.md for all agents.")
         else:
-            route_text(state, text)
+            route_text(state, text, msg_id, reply_to)
+    apply_qa_actions(state)
     save_state(state)
 
 
-def route_text(state, text):
-    if state["phase"] == "await_approval":
-        state["feedback"] = (state.get("feedback", "") + "\n" + text).strip()
-        state["phase"] = "plan"
-        notify("📝 Got it, revising the plan.")
+def answer_task(state, tid, text):
+    tdir = WORK / "tasks" / tid
+    tdir.mkdir(parents=True, exist_ok=True)
+    with open(tdir / "answers.md", "a") as f:
+        f.write(f"\n## {now():%Y-%m-%d %H:%M}\n{text}\n")
+    q = tdir / "needs_human.md"
+    if q.exists():
+        q.rename(tdir / f"needs_human.answered-{now():%Y%m%d%H%M%S}.md")
+    if any(t["id"] == tid and t["status"] == "!" for t in tasks()):
+        set_status(tid, " ")
+    notify(f"👍 Passed to {tid}; it's unblocked and will continue.")
+
+
+def add_note(text):
+    with open(WORK / "inbox.md", "a") as f:
+        f.write(f"\n- ({now():%Y-%m-%d %H:%M}) {text}\n")
+
+
+def plan_feedback(state, text):
+    if state["phase"] != "await_approval":
+        add_note(text)
         return
-    blocked = [t for t in tasks() if t["status"] == "!"]
+    state["feedback"] = (state.get("feedback", "") + "\n" + text).strip()
+    state["phase"] = "plan"
+    notify("📝 Revising the plan with your feedback.")
+
+
+def route_text(state, text, msg_id=None, reply_to=None):
+    """Explicit task answers go straight through; everything else is a conversation with the Q&A agent,
+    which can turn it into a note / task answer / plan feedback via directives (see QA_SYSTEM)."""
+    blocked = {t["id"] for t in tasks() if t["status"] == "!"}
     m = re.match(r"^(T-\d+)\s*[:\-]\s*(.+)$", text, re.S)
-    target = None
-    if m and any(t["id"] == m[1] for t in blocked):
-        target, text = m[1], m[2]
-    elif len(blocked) == 1:
-        target = blocked[0]["id"]
-    if target:
-        tdir = WORK / "tasks" / target
-        with open(tdir / "answers.md", "a") as f:
-            f.write(f"\n## {now():%Y-%m-%d %H:%M}\n{text}\n")
-        q = tdir / "needs_human.md"
-        if q.exists():
-            q.rename(tdir / f"needs_human.answered-{now():%Y%m%d%H%M%S}.md")
-        set_status(target, " ")
-        notify(f"👍 Answer saved, {target} unblocked.")
-    else:
-        with open(WORK / "inbox.md", "a") as f:
-            f.write(f"\n- ({now():%Y-%m-%d %H:%M}) {text}\n")
-        hint = f" Several tasks are blocked ({', '.join(t['id'] for t in blocked)}); prefix with 'T-xxx:' to answer one." if blocked else ""
-        notify("🗒 Added to inbox.md; agents will read it." + hint)
+    if m and m[1] in blocked:
+        return answer_task(state, m[1], m[2])
+    tid = state.get("blocked_msgs", {}).get(str(reply_to)) if reply_to else None
+    if tid and tid in blocked:
+        return answer_task(state, tid, text)
+    threading.Thread(target=qa_answer, args=(text, msg_id, qa_context(state)), daemon=True).start()
+
+
+def qa_context(state):
+    lines = [f"phase={state['phase']}", f"current_task={state.get('current')}"]
+    if state["phase"] == "await_approval":
+        lines.append("A plan (.work/backlog.md) is waiting for the owner's approval.")
+    for t in tasks():
+        q = WORK / "tasks" / t["id"] / "needs_human.md"
+        if t["status"] == "!" and q.exists():
+            lines.append(f"BLOCKED {t['id']} asks: {q.read_text()[:800]}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- Q&A (/ask)
@@ -252,7 +277,15 @@ QA_SYSTEM = """You answer the project owner's questions over Telegram. They are 
 Use the repo (.work/backlog.md, .work/STATUS.md, .work/tasks/*/summary.md, src/, git history files) and the web.
 You are read-only: never modify files. Agents are building the project concurrently, so don't interfere.
 Telegram shows plain text. No markdown tables or headings. Short paragraphs and simple '-' lists are fine.
-Be concise by default (under ~250 words). Go deeper when asked to explain or teach. Link the official docs and sources you used."""
+Be concise by default (under ~250 words). Go deeper when asked to explain or teach. Link the official docs and sources you used.
+
+Each message starts with a [harness] block describing the build's current state. You can't change files, but you can
+ask the harness to act by putting a directive on its own line (one line each; it's stripped before the owner sees your reply):
+@@NOTE: <instruction>         the owner wants to steer the build (priorities, preferences, scope). Saved to .work/inbox.md, read by every build agent.
+@@ANSWER T-xxx: <answer>      the owner is answering a BLOCKED task's question. Restate the answer clearly and completely.
+@@PLAN: <feedback>            the owner wants changes to a plan that's waiting for approval.
+Only use a directive when the owner clearly means it. Questions and chat get a plain answer. If unsure, ask them.
+Mention briefly in your reply what you passed on."""
 
 
 def qa_load():
@@ -266,13 +299,29 @@ def qa_save(q):
     QA_F.write_text(json.dumps(q))
 
 
-def qa_answer(question, msg_id):
+QA_ACTIONS = []  # filled by the Q&A thread, applied by the main loop (which owns the state)
+DIRECTIVE_RE = re.compile(r"^\s*@@(NOTE|PLAN|ANSWER (T-\d+)):\s*(.+)$", re.M)
+
+
+def apply_qa_actions(state):
+    while QA_ACTIONS:
+        kind, tid, text = QA_ACTIONS.pop(0)
+        if kind == "NOTE":
+            add_note(text)
+        elif kind == "PLAN":
+            plan_feedback(state, text)
+        elif tid:
+            answer_task(state, tid, text)
+
+
+def qa_answer(question, msg_id, context=""):
     if QA_LOCK.locked():
         notify("⏳ Finishing the previous question first…", reply_to=msg_id)
     with QA_LOCK:
         tg("sendChatAction", chat_id=TG_CHAT, action="typing")
         q = qa_load()
-        cmd = ["claude", "-p", question, "--output-format", "json", "--model", CFG["models"].get("qa", "sonnet"),
+        prompt = f"[harness]\n{context}\n[/harness]\n\n{question}" if context else question
+        cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", CFG["models"].get("qa", "sonnet"),
                "--max-turns", "40", "--dangerously-skip-permissions", "--append-system-prompt", QA_SYSTEM,
                "--disallowedTools", ",".join(CFG["disallowed_tools"] + ["Write", "Edit", "NotebookEdit", "Bash"])]
         if q.get("session"):
@@ -291,6 +340,10 @@ def qa_answer(question, msg_id):
                 text = "⚠️ Couldn't answer: " + (text or "no output")[:500]
         if res.get("session_id"):
             q["session"] = res["session_id"]
+        for m in DIRECTIVE_RE.finditer(text):
+            QA_ACTIONS.append((m[1].split()[0], m[2], m[3].strip()))
+            log(f"qa directive {m[1]}: {m[3][:120]}")
+        text = DIRECTIVE_RE.sub("", text).strip() or "👍 Done."
         q["msg_ids"] = (q.get("msg_ids", []) + notify("💡 " + text, reply_to=msg_id))[-100:]
         qa_save(q)
 
@@ -408,11 +461,14 @@ def run_claude(state, key, prompt, model):
     failures = 0
     while True:
         sid = state["sessions"].get(key)
+        fresh = not sid
+        if fresh:  # pick the id up front so a crash/restart mid-run can still resume this session
+            sid = state["sessions"][key] = str(uuid.uuid4())
+            save_state(state)
         cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", model,
                "--max-turns", str(CFG["max_turns"]), "--dangerously-skip-permissions",
                "--disallowedTools", ",".join(CFG["disallowed_tools"])]
-        if sid:
-            cmd += ["--resume", sid]
+        cmd += ["--session-id", sid] if fresh else ["--resume", sid]
         LOGS.mkdir(parents=True, exist_ok=True)
         logf = LOGS / f"{key}-{now():%Y%m%d-%H%M%S}.json"
         log(f"claude[{key}] model={model} resume={bool(sid)}")
@@ -425,6 +481,10 @@ def run_claude(state, key, prompt, model):
                     proc.kill()
                     log(f"claude[{key}] timed out")
         raw = logf.read_text()
+        if not fresh and "No conversation found" in raw:  # session never got written; start it fresh
+            log(f"claude[{key}] session {sid} not found, starting fresh")
+            state["sessions"].pop(key, None)
+            continue
         try:
             res = json.loads(raw[raw.find("{"):]) if "{" in raw else {}
         except json.JSONDecodeError:
@@ -542,7 +602,10 @@ def do_task(state, t):
         if (tdir / "needs_human.md").exists():
             set_status(tid, "!")
             commit(f"wip({tid}): blocked, awaiting human")
-            notify(f"⛔ {tid} needs you:\n\n{(tdir / 'needs_human.md').read_text()[:3000]}\n\nReply here to answer. I'll continue with other tasks meanwhile.")
+            ids = notify(f"⛔ {tid} needs you:\n\n{(tdir / 'needs_human.md').read_text()[:3000]}\n\n"
+                         "Reply to this message to answer. I'll continue with other tasks meanwhile.")
+            state.setdefault("blocked_msgs", {}).update({str(i): tid for i in ids})
+            save_state(state)
             return
 
         ok, out = verify(state)
@@ -576,7 +639,10 @@ def do_task(state, t):
         f"Couldn't converge after {CFG['max_fix_rounds']} fix rounds. How should I proceed? "
         f"(e.g. 'skip', a hint, or a scope change)\n\nLast problem:\n{feedback[:2500]}\n")
     commit(f"wip({tid}): blocked, did not converge")
-    notify(f"⛔ {tid} is stuck after {CFG['max_fix_rounds']} fix rounds.\n\n{feedback[:2500]}\n\nReply with guidance.")
+    ids = notify(f"⛔ {tid} is stuck after {CFG['max_fix_rounds']} fix rounds.\n\n{feedback[:2500]}\n\n"
+                 "Reply to this message with guidance.")
+    state.setdefault("blocked_msgs", {}).update({str(i): tid for i in ids})
+    save_state(state)
 
 
 def main():
@@ -593,7 +659,12 @@ def main():
     write_policy(state)
     notify(f"🍳 Cook started (phase: {state['phase']}). Send /help for commands.", progress=True)
     announced_done = False
+    code_mtime = os.path.getmtime(__file__)
     while True:
+        if os.path.getmtime(__file__) != code_mtime and not QA_LOCK.locked():
+            log("harness code changed, reloading")
+            save_state(state)
+            os.execv(sys.executable, [sys.executable, __file__])
         handle(state, poll(state))
         write_status(state)
         if state.get("paused"):

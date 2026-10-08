@@ -1,0 +1,2 @@
+VERDICT: PASS
+[MEDIUM] src/voiceroom/store.py:169: list() accepts decrypted names without validating their keyed filenames → Copy Bob's encrypted record over Alice's file, then delete Bob: list() still reports Bob, but load('Bob') raises KeyError and delete('Bob') returns False, leaving Bob's biometric record behind → Validate each record's filename against _path(rec['name']) and raise StoreError for mismatches; extend the existing swapped-file smoke to cover listing.

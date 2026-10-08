@@ -1,7 +1,7 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 17:41
+Voice Room · 2026-10-08 17:51
 Phase: build · unit tests off · 4/23 done · est. API-equivalent cost $1.38
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
@@ -31,10 +31,14 @@ Phase: build · unit tests off · 4/23 done · est. API-equivalent cost $1.38
 ## Recent commits
 
 ```
-25231ce T-004: Implement enrollment signatures and cosine matcher
-efe0152 T-003: Define pluggable embedder interface with toy embedder
-75b74b0 T-002: Add audio utilities and synthetic speaker generator
-941e141 T-001: Set up project skeleton and smoke runner
+099463b Commit 1
+d8e14d9 T-004: Implement enrollment signatures and cosine matcher
+9c78516 T-003: Define pluggable embedder interface with toy embedder
+d949408 T-002: Add audio utilities and synthetic speaker generator
+20484db T-001: Set up project skeleton and smoke runner
+ba876cf harness: Telegram /ask Q&A, quiet notifications, milestone branches + GitHub pusher, live watch
+01978e7 Merge initial GitHub commit
+a4a25c6 Initial commit
 c4de5f7 plan: M0+M1 backlog
 4c25810 chore: initial scaffold
 ```
