@@ -49,7 +49,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: pyproject optional extra `ecapa` using the torch CPU index via `[tool.uv]` sources, with torch/torchaudio/speechbrain versions pinned to a combination that imports cleanly on 3.12; `embedders/ecapa.py` registered as `ecapa-voxceleb` (model cached under `models/`, fetched via `fetch_models.py --only ecapa`); `scripts/smoke/smoke_embedder_ecapa.py` SKIPs when the extra or model is missing, otherwise checks dim 192, unit norm, and determinism; core `uv sync` (without the extra) still passes `make check`; the pinned versions and any workaround go in decisions.md.
   depends: T-006
 
-- [ ] T-010 | M0 | Implement bench metrics, trials, and report writer
+- [x] T-010 | M0 | Implement bench metrics, trials, and report writer
   goal: Compute speaker-verification metrics from scored trials and write the markdown report SPEC requires.
   accept: `voiceroom/bench/metrics.py` (EER with its threshold, FAR/FRR at a given threshold, threshold for a target FAR, length buckets <1 s / 1–2 s / 2–4 s / ≥4 s, latency p50/p95, RTF) and `voiceroom/bench/report.py` (writes `reports/bench-<embedder>.md` with all sections plus dataset/seed/config header); `voiceroom/bench/run.py` builds trials from conversation segments (target = owner, non-target = others) against enrolled signatures and times each segment embedding; `scripts/smoke/smoke_bench.py` runs the bench with `--corpus synth --embedder toy` in < 10 s into a temp dir and asserts every report section exists and EER is in [0, 0.5]; `make check` green.
   depends: T-005, T-008
