@@ -44,7 +44,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/eval/conversations.py` (`make_conversation(corpus, speakers, n_turns, pause_range, snr_db|None, seed) -> Conversation(audio, segments[(start, end, speaker)])`, plus enrollment/test utterance split so enrollment audio never appears in conversations, and save/load as wav + JSON under `data/`); `scripts/smoke/smoke_conversations.py` on SynthCorpus checks that segments do not overlap and are sorted, segment audio matches the source utterances, pauses are within range, the same seed gives identical output, and the enrollment/test split is disjoint; `make check` green.
   depends: T-007
 
-- [ ] T-009 | M0 | Add optional SpeechBrain ECAPA embedder
+- [x] T-009 | M0 | Add optional SpeechBrain ECAPA embedder
   goal: Add `ecapa` as a second embedder candidate behind an optional `ecapa` extra (torch CPU), loading audio ourselves to avoid torchaudio backend issues.
   accept: pyproject optional extra `ecapa` using the torch CPU index via `[tool.uv]` sources, with torch/torchaudio/speechbrain versions pinned to a combination that imports cleanly on 3.12; `embedders/ecapa.py` registered as `ecapa-voxceleb` (model cached under `models/`, fetched via `fetch_models.py --only ecapa`); `scripts/smoke/smoke_embedder_ecapa.py` SKIPs when the extra or model is missing, otherwise checks dim 192, unit norm, and determinism; core `uv sync` (without the extra) still passes `make check`; the pinned versions and any workaround go in decisions.md.
   depends: T-006

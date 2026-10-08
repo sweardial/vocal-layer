@@ -1,6 +1,6 @@
 """Download pinned model files into models/ (idempotent, sha256-verified).
 
-uv run python scripts/fetch_models.py [--only wespeaker|silero ...]
+uv run python scripts/fetch_models.py [--only wespeaker|silero|ecapa ...]
 """
 
 import argparse
@@ -13,6 +13,7 @@ MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 
 _WESPEAKER_REV = "f0c48c298fd835726c27956a5d617bad7115627e"
 _SILERO_TAG = "v5.1.2"
+_ECAPA_REV = "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286"
 
 # key -> (filename, url, sha256)
 MODELS = {
@@ -27,6 +28,13 @@ MODELS = {
         f"https://raw.githubusercontent.com/snakers4/silero-vad/{_SILERO_TAG}/"
         "src/silero_vad/data/silero_vad.onnx",
         "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f",
+    ),
+    # Only the embedding weights; the architecture is built in code (embedders/ecapa.py).
+    "ecapa": (
+        "ecapa_voxceleb_embedding_model.ckpt",
+        "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb/resolve/"
+        f"{_ECAPA_REV}/embedding_model.ckpt",
+        "0575cb64845e6b9a10db9bcb74d5ac32b326b8dc90352671d345e2ee3d0126a2",
     ),
 }
 
@@ -44,6 +52,11 @@ voxceleb_resnet34_LM.onnx
 silero_vad.onnx
   Silero VAD, https://github.com/snakers4/silero-vad (tag {_SILERO_TAG}), MIT License,
   Copyright (c) Silero Team.
+
+ecapa_voxceleb_embedding_model.ckpt
+  SpeechBrain ECAPA-TDNN speaker embedding weights (embedding_model.ckpt), trained on VoxCeleb.
+  Source: https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb (rev {_ECAPA_REV})
+  License: Apache-2.0. The VoxCeleb training data has its own terms.
 """
 
 

@@ -12,6 +12,15 @@ dependencies = [
     "kaldi-native-fbank>=1.22.3",
 ]
 
+[project.optional-dependencies]
+# torch CPU build via [tool.uv] sources below. torch/torchaudio 2.8 is the last pair that
+# speechbrain imports cleanly (torchaudio >= 2.9 dropped list_audio_backends); see D-008.
+ecapa = [
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "speechbrain==1.0.3",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -32,3 +41,12 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 markers = ["live: needs a real API"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
