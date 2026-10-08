@@ -34,7 +34,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `scripts/fetch_models.py` (idempotent, sha256-pinned, downloads `voxceleb_resnet34_LM.onnx` and the Silero VAD ONNX into `models/`, `--only` flag); `embedders/wespeaker.py` registered as `wespeaker-resnet34` (fbank params verified against the wespeaker config and noted in the plan; CC-BY attribution in a `models/README` or NOTICE written by the fetch script); `scripts/smoke/smoke_embedder_wespeaker.py` SKIPs if the model is absent, otherwise checks dim 256, unit norm, determinism, and RTF < 0.2 on 5 s audio; the script is run after `fetch_models.py` with the result recorded in summary.md; `make check` green.
   depends: T-003
 
-- [ ] T-007 | M0 | Add LibriSpeech download script and corpus index
+- [x] T-007 | M0 | Add LibriSpeech download script and corpus index
   goal: Fetch LibriSpeech dev-clean (or dev-clean-2 with `--mini`) into `data/` and index utterances by speaker.
   accept: `scripts/fetch_data.py` (mirror fallback, md5 check, resumable or skip-if-present, extract to `data/LibriSpeech/`); `voiceroom/eval/corpus.py` (`Corpus` protocol: speakers → utterances with duration; `LibriSpeechCorpus(root)`; `SynthCorpus(n_speakers, seed)` built on `synth`); `scripts/smoke/smoke_corpus.py` always checks SynthCorpus and checks LibriSpeechCorpus (≥ 40 speakers for dev-clean) only when data is present, otherwise SKIP for that part; the fetch is run once in the container with counts recorded in summary.md; `make check` green.
   depends: T-002

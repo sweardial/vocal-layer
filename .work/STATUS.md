@@ -1,15 +1,15 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 17:57
-Phase: build · unit tests off · 5/23 done · est. API-equivalent cost $2.15
+Voice Room · 2026-10-08 18:01
+Phase: build · unit tests off · 6/23 done · est. API-equivalent cost $2.69
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
 ✅ T-004 Implement enrollment signatures and cosine matcher
 ✅ T-005 Add encrypted file-based signature store with delete
-🔨 T-006 Add model fetch script and WeSpeaker ONNX embedder
-⬜ T-007 Add LibriSpeech download script and corpus index
+✅ T-006 Add model fetch script and WeSpeaker ONNX embedder
+🔨 T-007 Add LibriSpeech download script and corpus index
 ⬜ T-008 Build synthetic conversations with ground-truth segments
 ⬜ T-009 Add optional SpeechBrain ECAPA embedder
 ⬜ T-010 Implement bench metrics, trials, and report writer
@@ -31,6 +31,8 @@ Phase: build · unit tests off · 5/23 done · est. API-equivalent cost $2.15
 ## Recent commits
 
 ```
+6d86fcc T-006: Add model fetch script and WeSpeaker ONNX embedder
+c6253e8 harness: conversational Telegram, resumable sessions, self-reload, keep harness out of task commits
 d1fb7a5 T-005: Add encrypted file-based signature store with delete
 099463b Commit 1
 d8e14d9 T-004: Implement enrollment signatures and cosine matcher
@@ -39,6 +41,4 @@ d949408 T-002: Add audio utilities and synthetic speaker generator
 20484db T-001: Set up project skeleton and smoke runner
 ba876cf harness: Telegram /ask Q&A, quiet notifications, milestone branches + GitHub pusher, live watch
 01978e7 Merge initial GitHub commit
-a4a25c6 Initial commit
-c4de5f7 plan: M0+M1 backlog
 ```

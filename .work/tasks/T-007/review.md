@@ -1,0 +1,19 @@
+# Review: T-007 (LibriSpeech fetch + corpus index)
+
+Scope: untracked `scripts/fetch_data.py`, `src/voiceroom/eval/{__init__,corpus}.py`, `scripts/smoke/smoke_corpus.py`.
+`make check` passes: lint is clean and 7/7 smoke scripts pass in 10.1 s. With data present, smoke_corpus runs the LibriSpeech part (dev-clean on disk has 40 speakers and 2703 flac files).
+No plan.md and no summary.md exist in `.work/tasks/T-007/`.
+
+## Findings
+
+[MEDIUM] scripts/fetch_data.py:84: The skip-if-present check is `any(target.iterdir())`. → If `extractall` is interrupted (Ctrl-C, disk full, container killed), `data/LibriSpeech/dev-clean/` is left non-empty but incomplete. Every rerun then prints "already present" and never repairs it. Downstream benches silently run on a partial corpus, and the smoke's `>= 40` check can still pass if the speaker dirs exist but are missing files. → Fix: after a successful extract, write a sentinel such as `data/LibriSpeech/<subset>/.complete` (or record the file count), and only skip when the sentinel exists. Also extract into a temp dir and rename it into place.
+
+[MEDIUM] scripts/fetch_data.py:63-65: Truncated downloads are treated as complete, and the fallout defeats resume. In Python 3.12, `HTTPResponse.read()` returns `b""` when the peer closes cleanly before Content-Length is reached. It does not raise IncompleteRead. → If a mirror drops the connection at 300 of 337 MB, the loop ends, `download()` returns, the md5 check fails, and line 97 deletes the whole `.part`. The next run starts from zero, so the "resumable" acceptance criterion fails on flaky links. → Fix: after streaming, compare the `.part` size with the expected total (Content-Length plus `have`, or the total from Content-Range). If it is short, continue or retry with Range instead of returning. Only delete `.part` when the size is complete and the md5 still mismatches.
+
+[MEDIUM] scripts/fetch_data.py:37-47,90: The expected md5 is downloaded at runtime from the same third-party mirror list as the archive, and it is fetched before checking the local archive. → (a) The script can never run offline: an archive that is already downloaded and valid in `data/downloads/` cannot be re-extracted without network access, because `expected_md5` exits first. (b) The md5 gives no protection against tampering. A compromised or misbehaving first mirror (`openslr.trmal.net`) serves both the md5 and the archive, so any payload "verifies". → Fix: hardcode the published md5 for each subset in `SUBSETS`, so no network is needed for verification. Fall back to md5sum.txt only for unknown subsets.
+
+[LOW] src/voiceroom/eval/corpus.py:19: `_load` is an ordinary dataclass field, so the lambda is part of `__eq__`, `__hash__` and `__repr__`. → In T-008, two `Utterance`s with the same id from separately built corpora (e.g. `SynthCorpus(5, seed=3)` built twice) compare unequal. A set-based enrollment/test disjointness check then passes trivially even when the splits overlap. → Fix: `_load: Callable[[], np.ndarray] = field(compare=False, repr=False)`.
+
+[LOW] src/voiceroom/eval/corpus.py:83: The profile seed is `seed + i`, so corpora built with nearby seeds share voices. `SynthCorpus(n, seed=0)`'s `synth001` is the same voice as `SynthCorpus(n, seed=1)`'s `synth000`. → If two seeds are used as independent speaker pools (e.g. enrolled vs. impostor sets), "different" speakers are identical and the impostor metrics are corrupted. → Fix: derive profile seeds from a hash of `(seed, i)`, or from the corpus RNG.
+
+[LOW] .work/tasks/T-007/: There is no `summary.md` recording the fetch counts, although the acceptance criteria require "fetch run once in the container with counts recorded in summary.md". The data is present (40 speakers / 2703 utterances), but it is not documented. → If the task closes now, that criterion is unmet. → Fix: write summary.md with the subset, the speaker and utterance counts, and the archive md5.
