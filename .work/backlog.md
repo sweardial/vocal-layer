@@ -4,7 +4,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
 
 ## M0: Speaker-ID core + benchmark
 
-- [ ] T-001 | M0 | Set up project skeleton and smoke runner
+- [x] T-001 | M0 | Set up project skeleton and smoke runner
   goal: Create a uv-managed Python 3.12 package `voiceroom` (src layout) with ruff and a smoke runner so `make check` is green.
   accept: `pyproject.toml` (uv, requires-python >=3.12, ruff config, deps numpy/scipy/soundfile), `src/voiceroom/__init__.py` with `__version__`, `scripts/smoke/run_all.py` runs every `scripts/smoke/smoke_*.py` in a subprocess, prints PASS/FAIL/SKIP with timing, and exits non-zero if any fails or the total exceeds 60 s; `scripts/smoke/smoke_import.py` imports voiceroom; existing Makefile targets kept (`bench` may still be a stub); `uv sync && make check` passes; summary shows that a deliberately failing smoke script makes `make smoke` exit non-zero (then removed).
   depends: none
