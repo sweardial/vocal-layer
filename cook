@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Host-side control for the unattended build agent.
+#   ./cook setup    one-time: tokens + Telegram
+#   ./cook          start (builds image if needed) and leave
+#   ./cook codex-login   one-time: log Codex in with your ChatGPT account
+#   ./cook status | logs | stop | shell | rebuild
+set -euo pipefail
+cd "$(dirname "$0")"
+NAME=voice-room-cook
+IMAGE=voice-room-cook:latest
+ENVF=agentops/.env.agent
+CAFF=.work/.caffeinate.pid
+
+build() { docker build -t "$IMAGE" agentops; }
+tz() { readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##' || echo UTC; }
+
+case "${1:-start}" in
+  setup)   python3 agentops/setup.py ;;
+  build|rebuild) build ;;
+  start)
+    [ -f "$ENVF" ] || { echo "Run ./cook setup first."; exit 1; }
+    docker info >/dev/null 2>&1 || { echo "Docker isn't running. Start Docker Desktop."; exit 1; }
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || build
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    docker run -d --name "$NAME" --restart unless-stopped \
+      --env-file "$ENVF" -e TZ="$(tz)" \
+      -v "$PWD":/workspace -v "$NAME-home":/home/agent \
+      "$IMAGE" >/dev/null
+    mkdir -p .work
+    # keep the Mac awake (while on power) as long as the agent runs
+    ( caffeinate -is & echo $! > "$CAFF" ) 2>/dev/null || true
+    echo "🍳 Cooking. You'll get Telegram updates. './cook status' or './cook logs' to peek, './cook stop' to stop."
+    ;;
+  stop)
+    docker stop "$NAME" >/dev/null && echo "Stopped (state is kept; './cook' resumes)."
+    [ -f "$CAFF" ] && kill "$(cat "$CAFF")" 2>/dev/null; rm -f "$CAFF"
+    ;;
+  codex-login)
+    [ -f "$ENVF" ] || { echo "Run ./cook setup first."; exit 1; }
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || build
+    docker run --rm -it --env-file "$ENVF" -v "$NAME-home":/home/agent "$IMAGE" codex login --device-auth
+    ;;
+  status)  cat .work/STATUS.md 2>/dev/null || echo "No status yet." ;;
+  logs)    docker logs -f --tail 100 "$NAME" ;;
+  shell)   docker exec -it "$NAME" bash 2>/dev/null || docker run --rm -it --env-file "$ENVF" -v "$PWD":/workspace -v "$NAME-home":/home/agent "$IMAGE" bash ;;
+  *) echo "usage: ./cook [setup|codex-login|start|status|logs|stop|shell|rebuild]"; exit 1 ;;
+esac

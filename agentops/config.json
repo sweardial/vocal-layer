@@ -1,0 +1,24 @@
+{
+  "milestones": [
+    "M0",
+    "M1"
+  ],
+  "require_plan_approval": true,
+  "models": {
+    "plan": "opus",
+    "build": "sonnet"
+  },
+  "max_turns": 150,
+  "max_fix_rounds": 3,
+  "task_timeout_min": 150,
+  "verify_cmd": "make check",
+  "codex_cmd": [
+    "codex",
+    "exec",
+    "--skip-git-repo-check",
+    "--dangerously-bypass-approvals-and-sandbox"
+  ],
+  "limit_fallback_wait_min": 15,
+  "unit_tests": false,
+  "verify_cmd_with_tests": "make check test"
+}

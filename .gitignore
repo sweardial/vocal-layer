@@ -1,0 +1,15 @@
+agentops/.env.agent
+.env*
+data/
+models/
+*.wav
+*.flac
+*.mp3
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.work/logs/
+.work/state.json
+.work/.caffeinate.pid
