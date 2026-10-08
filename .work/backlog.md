@@ -29,7 +29,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/store.py` (`SignatureStore(root, key)` with save/load/list/delete; key from `VOICEROOM_KEY` or keyfile created 0600); `scripts/smoke/smoke_store.py` in a temp dir: round-trip equality, file bytes do not contain the raw float32 embedding bytes or the plaintext name, a wrong key raises a clear error, delete removes the file and the listing, and the keyfile mode is 0600; no embeddings in logs or reprs; `make check` green.
   depends: T-004
 
-- [ ] T-006 | M0 | Add model fetch script and WeSpeaker ONNX embedder
+- [x] T-006 | M0 | Add model fetch script and WeSpeaker ONNX embedder
   goal: Download pinned model files to `models/` and add the WeSpeaker ResNet34-LM embedder running on onnxruntime with a Kaldi-compatible fbank.
   accept: `scripts/fetch_models.py` (idempotent, sha256-pinned, downloads `voxceleb_resnet34_LM.onnx` and the Silero VAD ONNX into `models/`, `--only` flag); `embedders/wespeaker.py` registered as `wespeaker-resnet34` (fbank params verified against the wespeaker config and noted in the plan; CC-BY attribution in a `models/README` or NOTICE written by the fetch script); `scripts/smoke/smoke_embedder_wespeaker.py` SKIPs if the model is absent, otherwise checks dim 256, unit norm, determinism, and RTF < 0.2 on 5 s audio; the script is run after `fetch_models.py` with the result recorded in summary.md; `make check` green.
   depends: T-003

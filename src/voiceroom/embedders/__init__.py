@@ -7,6 +7,7 @@ from voiceroom.embedders.base import Embedder, embed_batch
 # name -> (module, class). Heavy backends are registered here by their own tasks.
 _REGISTRY: dict[str, tuple[str, str]] = {
     "toy": ("voiceroom.embedders.toy", "ToyEmbedder"),
+    "wespeaker-resnet34": ("voiceroom.embedders.wespeaker", "WespeakerEmbedder"),
 }
 
 
