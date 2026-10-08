@@ -14,7 +14,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/audio.py` (load any wav/flac → 16 kHz mono float32, resample via scipy, float↔int16 PCM, fixed-size frame iterator) and `voiceroom/synth.py` (seeded speaker = f0/formant/jitter profile → utterance of given duration; white/pink/brown noise at target SNR); `scripts/smoke/smoke_audio.py` checks round-trip resample length/dtype, frame iterator coverage, same seed → identical audio, different speakers → different spectra, and noise SNR within ±1 dB; `make check` green.
   depends: T-001
 
-- [ ] T-003 | M0 | Define pluggable embedder interface with toy embedder
+- [x] T-003 | M0 | Define pluggable embedder interface with toy embedder
   goal: Define the `Embedder` protocol and registry plus a numpy-only `toy` embedder (log-mel statistics) for offline checks.
   accept: `voiceroom/embedders/base.py` (`name`, `dim`, `embed(audio16k) -> L2-normalised np.ndarray`, optional `embed_batch`), `voiceroom/embedders/__init__.py` `get_embedder(name)` registry that lazily imports optional backends, `embedders/toy.py`; `scripts/smoke/smoke_embedder_toy.py` asserts that on 4 synthetic speakers the mean same-speaker cosine exceeds the mean different-speaker cosine by a clear margin (≥ 0.1) and that output is unit-norm and deterministic; `make check` green.
   depends: T-002
