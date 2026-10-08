@@ -113,8 +113,13 @@ def review_url(ms):
     return f"{url}/compare/{base}...{branch_for(ms)}?expand=1"
 
 
+def stage():
+    """Stage the agents' work. Harness files (agentops/, ./cook) are never part of a task commit."""
+    git("add", "-A", "--", ".", ":!agentops", ":!cook")
+
+
 def commit(message):
-    git("add", "-A")
+    stage()
     if git("status", "--porcelain"):
         git("commit", "-q", "-m", message + "\n\nCo-Authored-By: Claude <noreply@anthropic.com>")
 
@@ -471,7 +476,7 @@ def run_claude(state, key, prompt, model):
         cmd += ["--session-id", sid] if fresh else ["--resume", sid]
         LOGS.mkdir(parents=True, exist_ok=True)
         logf = LOGS / f"{key}-{now():%Y%m%d-%H%M%S}.json"
-        log(f"claude[{key}] model={model} resume={bool(sid)}")
+        log(f"claude[{key}] model={model} {'new session' if fresh else 'resume'} {sid[:8]}")
         with open(logf, "w") as out:
             proc = subprocess.Popen(cmd, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, text=True)
             deadline = time.time() + CFG["task_timeout_min"] * 60
@@ -526,7 +531,7 @@ def codex_review(state, tid, base, rnd):
     out = WORK / "tasks" / tid / f"review-codex-{rnd}.md"
     prompt = (OPS / "prompts" / "codex_review.md").read_text().format(
         task_id=tid, base=base, out=out.relative_to(ROOT), policy=policy(state))
-    git("add", "-A")
+    stage()
     try:
         r = subprocess.run(CFG["codex_cmd"] + [prompt], cwd=ROOT, capture_output=True, text=True, timeout=1800)
     except subprocess.TimeoutExpired:
@@ -536,7 +541,7 @@ def codex_review(state, tid, base, rnd):
             log(f"codex review failed: {r.stderr[-500:]}")
             return None
         out.write_text(r.stdout[-6000:])
-    git("add", "-A")
+    stage()
     return out.read_text()
 
 
@@ -575,7 +580,7 @@ def do_task(state, t):
     tdir = WORK / "tasks" / tid
     tdir.mkdir(parents=True, exist_ok=True)
     ensure_branch(t["ms"])
-    resuming = t["status"] == "~" or tid in state["sessions"]
+    resuming = tid in state["sessions"]  # only a saved session has the task context to "continue"
     set_status(tid, "~")
     state["current"] = tid
     base = state["bases"].setdefault(tid, git("rev-parse", "HEAD"))
