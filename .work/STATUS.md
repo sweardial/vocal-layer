@@ -1,12 +1,12 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 17:34
-Phase: build · unit tests off · 2/23 done · est. API-equivalent cost $0.50
+Voice Room · 2026-10-08 17:38
+Phase: build · unit tests off · 3/23 done · est. API-equivalent cost $0.87
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
-🔨 T-003 Define pluggable embedder interface with toy embedder
-⬜ T-004 Implement enrollment signatures and cosine matcher
+✅ T-003 Define pluggable embedder interface with toy embedder
+🔨 T-004 Implement enrollment signatures and cosine matcher
 ⬜ T-005 Add encrypted file-based signature store with delete
 ⬜ T-006 Add model fetch script and WeSpeaker ONNX embedder
 ⬜ T-007 Add LibriSpeech download script and corpus index
@@ -31,6 +31,7 @@ Phase: build · unit tests off · 2/23 done · est. API-equivalent cost $0.50
 ## Recent commits
 
 ```
+efe0152 T-003: Define pluggable embedder interface with toy embedder
 75b74b0 T-002: Add audio utilities and synthetic speaker generator
 941e141 T-001: Set up project skeleton and smoke runner
 c4de5f7 plan: M0+M1 backlog

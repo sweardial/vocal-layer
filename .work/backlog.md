@@ -19,7 +19,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/embedders/base.py` (`name`, `dim`, `embed(audio16k) -> L2-normalised np.ndarray`, optional `embed_batch`), `voiceroom/embedders/__init__.py` `get_embedder(name)` registry that lazily imports optional backends, `embedders/toy.py`; `scripts/smoke/smoke_embedder_toy.py` asserts that on 4 synthetic speakers the mean same-speaker cosine exceeds the mean different-speaker cosine by a clear margin (≥ 0.1) and that output is unit-norm and deterministic; `make check` green.
   depends: T-002
 
-- [ ] T-004 | M0 | Implement enrollment signatures and cosine matcher
+- [x] T-004 | M0 | Implement enrollment signatures and cosine matcher
   goal: Turn ~20–30 s of enrollment audio into a `Signature` and identify a segment against enrolled signatures with a threshold and margin.
   accept: `voiceroom/enroll.py` (`enroll(name, audio, embedder) -> Signature`: chunk into windows, embed, store centroid plus chunk embeddings, reject < 10 s of speech) and `voiceroom/matcher.py` (`Matcher(signatures, threshold).identify(audio|embedding) -> Match(name|None, score, margin)`, scores for all candidates); `Signature.__repr__` never shows embeddings; `scripts/smoke/smoke_enroll_match.py` enrolls 3 synthetic speakers with the toy embedder, identifies 30 held-out 2 s utterances with ≥ 90 % accuracy, and rejects a 4th unenrolled speaker in most cases (printed rates); `make check` green.
   depends: T-003
