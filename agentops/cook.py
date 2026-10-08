@@ -14,6 +14,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -83,6 +84,33 @@ def git(*args, check=False):
     return r.stdout.strip()
 
 
+def branch_for(ms):
+    return f"milestone/{ms.lower()}"
+
+
+def ensure_branch(ms):
+    """Each milestone's tasks land on their own branch (stacked on the previous one) → one reviewable PR per milestone."""
+    want = branch_for(ms)
+    if git("rev-parse", "--abbrev-ref", "HEAD") == want:
+        return
+    if git("rev-parse", "--verify", "-q", want):
+        git("checkout", "-q", want)
+    else:
+        git("checkout", "-q", "-b", want)
+    log(f"on branch {want}")
+
+
+def review_url(ms):
+    url = git("remote", "get-url", "origin")
+    if not url:
+        return ""
+    url = url.removesuffix(".git").replace("git@github.com:", "https://github.com/")
+    order = CFG["milestones"]
+    i = order.index(ms) if ms in order else 0
+    base = "main" if i == 0 else branch_for(order[i - 1])
+    return f"{url}/compare/{base}...{branch_for(ms)}?expand=1"
+
+
 def commit(message):
     git("add", "-A")
     if git("status", "--porcelain"):
@@ -105,11 +133,20 @@ def tg(method, wait=0, **params):
         return None
 
 
-def notify(text):
-    log("NOTIFY " + text.replace("\n", " | ")[:300])
+def notify(text, reply_to=None, progress=False):
+    """Send to the owner's chat; returns the Telegram message ids sent.
+    progress=True messages (task started/done, waiting on limits) only go to the log unless notify_progress is on."""
+    log(("PROGRESS " if progress else "NOTIFY ") + text.replace("\n", " | ")[:300])
+    ids = []
+    if progress and not CFG.get("notify_progress", False):
+        return ids
     if TG_CHAT:
         for i in range(0, len(text), 3900):
-            tg("sendMessage", chat_id=TG_CHAT, text=text[i:i + 3900])
+            extra = {"reply_to_message_id": reply_to} if reply_to and i == 0 else {}
+            r = tg("sendMessage", chat_id=TG_CHAT, text=text[i:i + 3900], **extra)
+            if r and r.get("ok"):
+                ids.append(r["result"]["message_id"])
+    return ids
 
 
 def poll(state, timeout=0):
@@ -123,16 +160,30 @@ def poll(state, timeout=0):
         state["telegram_offset"] = u["update_id"] + 1
         m = u.get("message") or {}
         if str(m.get("chat", {}).get("id")) == TG_CHAT and m.get("text"):
-            msgs.append(m["text"].strip())
+            msgs.append((m["text"].strip(), m["message_id"], (m.get("reply_to_message") or {}).get("message_id")))
     save_state(state)
     return msgs
 
 
 def handle(state, msgs):
-    for text in msgs:
+    for msg in msgs:
+        text, msg_id, reply_to = msg if isinstance(msg, tuple) else (msg, None, None)
         cmd, _, rest = text.partition(" ")
         cmd = cmd.lower().split("@")[0]
-        if cmd in ("/status", "/start"):
+        if cmd == "/ask" or (reply_to and reply_to in qa_load().get("msg_ids", [])):
+            question = rest if cmd == "/ask" else text
+            if question.strip():
+                threading.Thread(target=qa_answer, args=(question, msg_id), daemon=True).start()
+            else:
+                notify("Usage: /ask <question>. Reply to my answer to follow up, /new for a fresh topic.")
+        elif cmd == "/new":
+            qa_save({"session": None, "msg_ids": []})
+            notify("🧹 New Q&A conversation. Ask away with /ask.")
+        elif cmd == "/note" and rest.strip():
+            with open(WORK / "inbox.md", "a") as f:
+                f.write(f"\n- ({now():%Y-%m-%d %H:%M}) {rest.strip()}\n")
+            notify("🗒 Added to inbox.md; agents will read it.")
+        elif cmd in ("/status", "/start"):
             notify(status_text(state))
         elif cmd == "/pause":
             state["paused"] = True
@@ -153,7 +204,8 @@ def handle(state, msgs):
             state["feedback"] = rest or "Plan the next milestone(s) from SPEC.md."
             notify("📋 Re-planning with: " + state["feedback"])
         elif cmd == "/help":
-            notify("/status · /pause · /resume · /approve · /plan <request> · /tests on|off\n"
+            notify("/ask <question>: ask about the project, code, or libraries (reply to an answer to follow up; /new resets)\n"
+                   "/status · /pause · /resume · /approve · /plan <request> · /tests on|off · /note <text>\n"
                    "Any other text: answers a blocked task (prefix 'T-007:' if several are blocked), "
                    "plan feedback while a plan awaits approval, otherwise a note in .work/inbox.md for all agents.")
         else:
@@ -188,6 +240,59 @@ def route_text(state, text):
             f.write(f"\n- ({now():%Y-%m-%d %H:%M}) {text}\n")
         hint = f" Several tasks are blocked ({', '.join(t['id'] for t in blocked)}); prefix with 'T-xxx:' to answer one." if blocked else ""
         notify("🗒 Added to inbox.md; agents will read it." + hint)
+
+
+# ---------------------------------------------------------------- Q&A (/ask)
+
+QA_F = WORK / "qa.json"
+QA_LOCK = threading.Lock()
+QA_SYSTEM = """You answer the project owner's questions over Telegram. They are a software engineer building Voice Room
+(see SPEC.md, CLAUDE.md) and want to understand the project, the code being written, and the underlying tech
+(speaker embeddings, VAD, realtime voice APIs, libraries chosen in .work/decisions.md), sometimes to learn it properly.
+Use the repo (.work/backlog.md, .work/STATUS.md, .work/tasks/*/summary.md, src/, git history files) and the web.
+You are read-only: never modify files. Agents are building the project concurrently, so don't interfere.
+Telegram shows plain text. No markdown tables or headings. Short paragraphs and simple '-' lists are fine.
+Be concise by default (under ~250 words). Go deeper when asked to explain or teach. Link the official docs and sources you used."""
+
+
+def qa_load():
+    try:
+        return json.loads(QA_F.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"session": None, "msg_ids": []}
+
+
+def qa_save(q):
+    QA_F.write_text(json.dumps(q))
+
+
+def qa_answer(question, msg_id):
+    if QA_LOCK.locked():
+        notify("⏳ Finishing the previous question first…", reply_to=msg_id)
+    with QA_LOCK:
+        tg("sendChatAction", chat_id=TG_CHAT, action="typing")
+        q = qa_load()
+        cmd = ["claude", "-p", question, "--output-format", "json", "--model", CFG["models"].get("qa", "sonnet"),
+               "--max-turns", "40", "--dangerously-skip-permissions", "--append-system-prompt", QA_SYSTEM,
+               "--disallowedTools", ",".join(CFG["disallowed_tools"] + ["Write", "Edit", "NotebookEdit", "Bash"])]
+        if q.get("session"):
+            cmd += ["--resume", q["session"]]
+        raw = ""
+        try:
+            raw = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=900).stdout
+            res = json.loads(raw[raw.find("{"):]) if "{" in raw else {}
+        except (subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+            res = {"is_error": True, "result": f"failed: {e}"}
+        text = str(res.get("result") or "").strip()
+        if res.get("is_error") or not text:
+            if LIMIT_RE.search(text + raw[-2000:]):
+                text = "⏳ Usage limit reached. Ask again after it resets (the build waits too)."
+            else:
+                text = "⚠️ Couldn't answer: " + (text or "no output")[:500]
+        if res.get("session_id"):
+            q["session"] = res["session_id"]
+        q["msg_ids"] = (q.get("msg_ids", []) + notify("💡 " + text, reply_to=msg_id))[-100:]
+        qa_save(q)
 
 
 def idle(state, seconds):
@@ -291,7 +396,7 @@ def wait_for_limit(state, text):
         until = parse_reset(text) or now() + datetime.timedelta(minutes=CFG["limit_fallback_wait_min"])
         until = min(until, now() + datetime.timedelta(hours=8)) + datetime.timedelta(minutes=2)
         if not state.get("waiting_until"):
-            notify(f"⏳ Usage limit hit. Sleeping until ~{until:%H:%M}, then continuing automatically.")
+            notify(f"⏳ Usage limit hit. Sleeping until ~{until:%H:%M}, then continuing automatically.", progress=True)
     state["waiting_until"] = f"{until:%H:%M}"
     save_state(state)
     write_status(state)
@@ -385,10 +490,10 @@ def do_plan(state):
         prompt = (OPS / "prompts" / "plan.md").read_text().format(
             milestones=", ".join(CFG["milestones"]), policy=policy(state),
             feedback=f"Human request/feedback:\n{fb}" if fb else "")
-    notify("📋 Planning" + (" (revising)" if fb else "") + "…")
+    notify("📋 Planning" + (" (revising)" if fb else "") + "…", progress=True)
     res = run_claude(state, "plan", prompt, CFG["models"]["plan"])
     if not tasks():
-        notify("⚠️ Planner produced no parsable backlog. Retrying in 10 min.\n" + str(res.get("result", ""))[:500])
+        notify("⚠️ Planner produced no parsable backlog. Retrying in 10 min.\n" + str(res.get("result", ""))[:500], progress=True)
         state["sessions"].pop("plan", None)
         save_state(state)
         idle(state, 600)
@@ -409,13 +514,14 @@ def do_task(state, t):
     tid = t["id"]
     tdir = WORK / "tasks" / tid
     tdir.mkdir(parents=True, exist_ok=True)
+    ensure_branch(t["ms"])
     resuming = t["status"] == "~" or tid in state["sessions"]
     set_status(tid, "~")
     state["current"] = tid
     base = state["bases"].setdefault(tid, git("rev-parse", "HEAD"))
     save_state(state)
     write_status(state)
-    notify(f"{'🔁 Resuming' if resuming else '🔨 Starting'} {tid}: {t['title']}")
+    notify(f"{'🔁 Resuming' if resuming else '🔨 Starting'} {tid}: {t['title']}", progress=True)
 
     answers = (tdir / "answers.md").read_text() if (tdir / "answers.md").exists() else "(none)"
     if resuming:
@@ -456,7 +562,13 @@ def do_task(state, t):
         save_state(state)
         summary = str(res.get("result", "")).strip()[:1500]
         rv = "Codex review: PASS" if review else "Codex review: skipped (unavailable)"
-        notify(f"✅ {tid} done: {t['title']}\n\n{summary}\n\n{rv} · total est. ${state['cost_usd']:.2f}")
+        ms_tasks = [x for x in tasks() if x["ms"] == t["ms"]]
+        if all(x["status"] == "x" for x in ms_tasks) and t["ms"] not in state.setdefault("milestones_done", []):
+            state["milestones_done"].append(t["ms"])
+            save_state(state)
+            notify(f"🎉 {t['ms']} complete ({len(ms_tasks)} tasks, one commit each). Ready for your review; it gets pushed "
+                   f"to GitHub within ~2 min:\n{review_url(t['ms'])}\n\nWork continues on the next milestone meanwhile.")
+        notify(f"✅ {tid} done: {t['title']}\n\n{summary}\n\n{rv} · total est. ${state['cost_usd']:.2f}", progress=True)
         return
 
     set_status(tid, "!")
@@ -479,7 +591,7 @@ def main():
             state["telegram_offset"] = r["result"][-1]["update_id"] + 1
             save_state(state)
     write_policy(state)
-    notify(f"🍳 Cook started (phase: {state['phase']}). Send /help for commands.")
+    notify(f"🍳 Cook started (phase: {state['phase']}). Send /help for commands.", progress=True)
     announced_done = False
     while True:
         handle(state, poll(state))

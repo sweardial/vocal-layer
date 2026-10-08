@@ -6,7 +6,8 @@
   "require_plan_approval": true,
   "models": {
     "plan": "opus",
-    "build": "sonnet"
+    "build": "sonnet",
+    "qa": "sonnet"
   },
   "max_turns": 150,
   "max_fix_rounds": 3,
@@ -33,5 +34,6 @@
     "EnterPlanMode",
     "ExitPlanMode",
     "Workflow"
-  ]
+  ],
+  "notify_progress": false
 }

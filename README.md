@@ -9,6 +9,7 @@ This repo is built by an unattended agent loop (`agentops/`). You only get invol
 ./cook setup        # once: Claude token, OpenAI key (optional), Telegram bot
 ./cook codex-login  # once: Codex reviewer via your ChatGPT account
 ./cook           # start in Docker and walk away
+./cook watch     # live: every tool call and message from the agent and its subagents
 ./cook status    # or /status in Telegram
 ./cook logs | stop | shell | rebuild
 ```

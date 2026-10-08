@@ -13,6 +13,8 @@ __pycache__/
 .work/logs/
 .work/state.json
 .work/.caffeinate.pid
+.work/.pusher.pid
+.work/qa.json
 
 # --- GitHub Python template ---
 # Byte-compiled / optimized / DLL files
