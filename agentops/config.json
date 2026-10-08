@@ -20,5 +20,18 @@
   ],
   "limit_fallback_wait_min": 15,
   "unit_tests": false,
-  "verify_cmd_with_tests": "make check test"
+  "verify_cmd_with_tests": "make check test",
+  "disallowed_tools": [
+    "ScheduleWakeup",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "RemoteTrigger",
+    "Monitor",
+    "PushNotification",
+    "AskUserQuestion",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "Workflow"
+  ]
 }

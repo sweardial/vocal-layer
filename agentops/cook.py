@@ -304,7 +304,8 @@ def run_claude(state, key, prompt, model):
     while True:
         sid = state["sessions"].get(key)
         cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", model,
-               "--max-turns", str(CFG["max_turns"]), "--dangerously-skip-permissions"]
+               "--max-turns", str(CFG["max_turns"]), "--dangerously-skip-permissions",
+               "--disallowedTools", ",".join(CFG["disallowed_tools"])]
         if sid:
             cmd += ["--resume", sid]
         LOGS.mkdir(parents=True, exist_ok=True)
@@ -472,6 +473,11 @@ def main():
     if not git("rev-parse", "--verify", "-q", "HEAD"):
         commit("chore: initial scaffold")
     state = load_state()
+    if TG_TOKEN and not state["telegram_offset"]:  # first start: ignore messages sent before the agent existed
+        r = tg("getUpdates", offset=-1)
+        if r and r.get("result"):
+            state["telegram_offset"] = r["result"][-1]["update_id"] + 1
+            save_state(state)
     write_policy(state)
     notify(f"🍳 Cook started (phase: {state['phase']}). Send /help for commands.")
     announced_done = False
