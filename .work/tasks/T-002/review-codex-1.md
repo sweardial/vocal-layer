@@ -1,0 +1,2 @@
+VERDICT: PASS
+[LOW] src/voiceroom/audio.py:37: float_to_pcm16 scales by 32767 while pcm16_to_float divides by 32768 → decoding and re-encoding valid PCM endpoints [-32768, 32767] produces [-32767, 32766], so repeated PCM conversions attenuate audio rather than preserving representable samples → multiply by 32768, round, and clip the integer range to [-32768, 32767]; update the existing smoke script to check PCM endpoint preservation.
