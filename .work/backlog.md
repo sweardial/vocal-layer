@@ -24,7 +24,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/enroll.py` (`enroll(name, audio, embedder) -> Signature`: chunk into windows, embed, store centroid plus chunk embeddings, reject < 10 s of speech) and `voiceroom/matcher.py` (`Matcher(signatures, threshold).identify(audio|embedding) -> Match(name|None, score, margin)`, scores for all candidates); `Signature.__repr__` never shows embeddings; `scripts/smoke/smoke_enroll_match.py` enrolls 3 synthetic speakers with the toy embedder, identifies 30 held-out 2 s utterances with ≥ 90 % accuracy, and rejects a 4th unenrolled speaker in most cases (printed rates); `make check` green.
   depends: T-003
 
-- [ ] T-005 | M0 | Add encrypted file-based signature store with delete
+- [~] T-005 | M0 | Add encrypted file-based signature store with delete
   goal: Persist signatures encrypted at rest (Fernet), with list/load/delete and consent metadata, per decision D-006.
   accept: `voiceroom/store.py` (`SignatureStore(root, key)` with save/load/list/delete; key from `VOICEROOM_KEY` or keyfile created 0600); `scripts/smoke/smoke_store.py` in a temp dir: round-trip equality, file bytes do not contain the raw float32 embedding bytes or the plaintext name, a wrong key raises a clear error, delete removes the file and the listing, and the keyfile mode is 0600; no embeddings in logs or reprs; `make check` green.
   depends: T-004

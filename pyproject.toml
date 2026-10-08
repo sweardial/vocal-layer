@@ -3,7 +3,7 @@ name = "voiceroom"
 version = "0.1.0"
 description = "Speaker-aware layer for realtime voice AI"
 requires-python = ">=3.12"
-dependencies = ["numpy", "scipy", "soundfile"]
+dependencies = ["numpy", "scipy", "soundfile", "cryptography"]
 
 [build-system]
 requires = ["hatchling"]
