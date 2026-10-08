@@ -9,7 +9,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `pyproject.toml` (uv, requires-python >=3.12, ruff config, deps numpy/scipy/soundfile), `src/voiceroom/__init__.py` with `__version__`, `scripts/smoke/run_all.py` runs every `scripts/smoke/smoke_*.py` in a subprocess, prints PASS/FAIL/SKIP with timing, and exits non-zero if any fails or the total exceeds 60 s; `scripts/smoke/smoke_import.py` imports voiceroom; existing Makefile targets kept (`bench` may still be a stub); `uv sync && make check` passes; summary shows that a deliberately failing smoke script makes `make smoke` exit non-zero (then removed).
   depends: none
 
-- [ ] T-002 | M0 | Add audio utilities and synthetic speaker generator
+- [x] T-002 | M0 | Add audio utilities and synthetic speaker generator
   goal: Provide 16 kHz mono float32 audio helpers and deterministic synthetic "voices" so every later smoke check runs offline.
   accept: `voiceroom/audio.py` (load any wav/flac → 16 kHz mono float32, resample via scipy, float↔int16 PCM, fixed-size frame iterator) and `voiceroom/synth.py` (seeded speaker = f0/formant/jitter profile → utterance of given duration; white/pink/brown noise at target SNR); `scripts/smoke/smoke_audio.py` checks round-trip resample length/dtype, frame iterator coverage, same seed → identical audio, different speakers → different spectra, and noise SNR within ±1 dB; `make check` green.
   depends: T-001

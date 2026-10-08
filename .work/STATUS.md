@@ -1,10 +1,10 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 17:30
-Phase: build · unit tests off · 0/23 done · est. API-equivalent cost $0.00
-🔨 T-001 Set up project skeleton and smoke runner
-⬜ T-002 Add audio utilities and synthetic speaker generator
+Voice Room · 2026-10-08 17:32
+Phase: build · unit tests off · 1/23 done · est. API-equivalent cost $0.09
+✅ T-001 Set up project skeleton and smoke runner
+🔨 T-002 Add audio utilities and synthetic speaker generator
 ⬜ T-003 Define pluggable embedder interface with toy embedder
 ⬜ T-004 Implement enrollment signatures and cosine matcher
 ⬜ T-005 Add encrypted file-based signature store with delete
@@ -31,6 +31,7 @@ Phase: build · unit tests off · 0/23 done · est. API-equivalent cost $0.00
 ## Recent commits
 
 ```
+941e141 T-001: Set up project skeleton and smoke runner
 c4de5f7 plan: M0+M1 backlog
 4c25810 chore: initial scaffold
 ```
