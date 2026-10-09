@@ -5,6 +5,7 @@ Front end matches wespeaker's `compute_fbank`: waveform scaled to int16 range, 8
 Model: CC-BY-4.0, see models/README (written by scripts/fetch_models.py).
 """
 
+import os
 from pathlib import Path
 
 import kaldi_native_fbank as knf
@@ -16,6 +17,9 @@ from voiceroom.embedders.base import l2_normalize
 
 DEFAULT_MODEL = Path(__file__).resolve().parents[3] / "models" / "voxceleb_resnet34_LM.onnx"
 N_MELS = 80
+# Inference cost is linear in clip length (~55 ms/s single-threaded) and scales ~linearly with
+# threads up to 4, which is what removed the long-clip p95 tail.
+N_THREADS = max(1, min(4, os.cpu_count() or 1))
 MIN_SAMPLES = SAMPLE_RATE  # shorter inputs give NaN (std pooling over ~1 frame); pad to 1 s
 
 
@@ -47,7 +51,7 @@ class WespeakerEmbedder:
         if not path.exists():
             raise FileNotFoundError(f"{path} missing; run scripts/fetch_models.py --only wespeaker")
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1
+        opts.intra_op_num_threads = N_THREADS
         self._sess = ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
         self._in = self._sess.get_inputs()[0].name
 

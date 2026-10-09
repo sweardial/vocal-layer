@@ -127,7 +127,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: bench compares at least two of: multi-centroid signatures, score normalization (AS-norm/cohort), noise-augmented enrollment; the best is wired behind config and `reports/` shows ≥ 1 s 10 dB FRR and FAR; a new D-0xx records the result; `make bench` and `make check` green.
   depends: T-012
 
-- [ ] T-025 | M0 | Reduce p95 embedding latency
+- [x] T-025 | M0 | Reduce p95 embedding latency
   goal: Per-clip embedding p95 is about 595 ms (p50 75 ms) for wespeaker; find the cause (long clips, fbank, onnx threads, first calls) and cut it.
   accept: bench report shows p95 < 250 ms for the default embedder with no accuracy change (EER within 0.2 pt); `make bench` and `make check` green.
   depends: T-012

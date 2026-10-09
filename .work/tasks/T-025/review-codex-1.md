@@ -1,0 +1,2 @@
+VERDICT: PASS
+[MEDIUM] src/voiceroom/embedders/wespeaker.py:54: The latency change has no added or updated smoke proof; the existing WeSpeaker smoke only requires RTF < 0.2 on a 5 s clip → reverting to the original single-thread inference still passes that check despite the reported ~600 ms p95, so make smoke cannot detect loss of the task's improvement → update scripts/smoke/smoke_embedder_wespeaker.py with a small offline long-clip latency check that distinguishes the old implementation from the improved one, retaining the model-absent skip and keeping the check fast.
