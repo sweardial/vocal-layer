@@ -2,6 +2,8 @@
 
 Speaker-aware layer for realtime voice AI. The product and milestones are in `SPEC.md`. Read the relevant section, not the whole thing, every time.
 
+**Interactive session with the owner (not an unattended `claude -p` task)? Read `HANDOFF.md` first.** It explains the build system, the owner's preferences, and how to work alongside the running agents.
+
 ## Stack & commands
 - Python 3.12, uv, src layout (`src/voiceroom/`), ruff.
 - **Testing policy: follow `.work/POLICY.md`** (set by the human; it says whether unit tests are on).

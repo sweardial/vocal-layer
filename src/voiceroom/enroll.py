@@ -5,12 +5,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from voiceroom.audio import SAMPLE_RATE
+from voiceroom.config import HOP_S, MIN_SPEECH_S, WINDOW_S
 from voiceroom.embedders import Embedder, embed_batch
 from voiceroom.embedders.base import l2_normalize
 
-MIN_SPEECH_S = 10.0
-WINDOW_S = 3.0
-HOP_S = 1.5
 _FRAME = SAMPLE_RATE // 50  # 20 ms
 
 

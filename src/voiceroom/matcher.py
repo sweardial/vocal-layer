@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from voiceroom.config import MIN_MARGIN, threshold_for
 from voiceroom.embedders import Embedder
 from voiceroom.enroll import Signature
 
@@ -21,9 +22,9 @@ class Matcher:
     def __init__(
         self,
         signatures: list[Signature],
-        threshold: float,
+        threshold: float | None = None,
         embedder: Embedder | None = None,
-        min_margin: float = 0.0,
+        min_margin: float = MIN_MARGIN,
     ):
         if not signatures:
             raise ValueError("Matcher needs at least one signature")
@@ -35,7 +36,7 @@ class Matcher:
             raise ValueError("embedder does not match signatures")
         self.names = [s.name for s in signatures]
         self._cent = np.stack([s.centroid for s in signatures])
-        self.threshold = threshold
+        self.threshold = threshold_for(signatures[0].embedder) if threshold is None else threshold
         self.min_margin = min_margin
         self.embedder = embedder
 

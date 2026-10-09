@@ -1,0 +1,16 @@
+# Review T-010 (bench metrics, trials, report)
+
+`make check`: green (smoke_bench 2.5 s). No plan.md exists for T-010.
+Metric math checked and correct: EER (pooled argmin |FAR-FRR|, accept when score >= t), far_frr, threshold_for_far (lowest threshold with FAR <= target), bucket edges, percentiles, RTF. Enrollment and test utterances are disjoint (both use split_seed=seed). Privacy: no audio or embeddings are logged or persisted, and signatures stay in memory only.
+
+[HIGH] src/voiceroom/bench/run.py:66-76 (and __main__.py:28): every trial uses a whole corpus utterance as its segment, and segments are never cropped. Synth utterances are 2-6 s. In LibriSpeech dev-clean (checked locally), 0 % of utterances are under 1 s and 1.4 % are under 2 s. → On every seed 1-12 the `<1 s` and `1-2 s` rows come out `0 | 0 | n/a`, and on LibriSpeech the `<1 s` row will always be n/a and the `1-2 s` row will hold about 1 % of trials. The SPEC's short-utterance results (SPEC.md:50) and the ">= 1 s FR" target can't be measured, which leaves T-012 with no numbers to work from. → Fix: for each conversation segment, also make trials from seeded crops at fixed lengths (e.g. 0.5, 1.0, 1.5, 3.0 s and full), time each crop, and record the crop length as its duration.
+
+[MEDIUM] src/voiceroom/bench/report.py:59-72: FAR/FRR is reported only per bucket. There is no pooled row for >= 1 s and no separate row for < 1 s. → T-012 has to compare against the "FR < 5 % for >= 1 s" target, but no report line gives that number, and summing bucket rates by hand is wrong unless you weight by counts. → Fix: add a `>=1 s (all)` row (and keep `<1 s` separate), computed from the masked trials.
+
+[MEDIUM] src/voiceroom/bench/__main__.py:19-21 + report.py:25,52-58: by default each segment gets 6 conversations x 8 turns x 3 speakers, which is 48 target and 96 non-target trials. → FAR moves in steps of about 1 %, so the "FA < 2 %" target can't be resolved. The 0.1 % row always comes out as the "FAR 0.00 %" threshold (it would need 1000+ non-targets), and that looks precise when it isn't. T-011 reports will repeat this unless the counts are raised. → Fix: raise the defaults (or make T-011 set them) so there are well over 1/target_far non-targets. Print `n/a (need >= N non-targets)` when len(non) < 1/target_far.
+
+[LOW] src/voiceroom/bench/report.py:30: the default operating threshold is the EER threshold, which is fit on the same trials. The "FAR/FRR at the operating threshold" section just restates the EER, and the bucket FAR/FRR come out optimistic. → Fix: once T-012 lands, use the config threshold as the default and mark the EER-threshold fallback as "tuned on test".
+
+[LOW] src/voiceroom/bench/run.py:68-71: the first `embed` call (ONNX session warm-up, allocations) counts toward latency and RTF. → With real embedders on short runs, RTF and mean latency are inflated. p95 is mostly unaffected. → Fix: before timing, make one untimed warm-up call on a 1 s dummy clip.
+
+[LOW] src/voiceroom/bench/__main__.py:29,33 + run.py:31: a small `--enroll-utts` (e.g. 2 on synth, 1 on LibriSpeech) can produce less than 10 s of speech. `EnrollmentError` then surfaces as a raw traceback. `--enroll-utts 0` is silently replaced by the default. → Fix: catch EnrollmentError in main, exit with a clear message, and use `is None` in place of `or`.

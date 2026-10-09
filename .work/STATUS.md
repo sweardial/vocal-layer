@@ -1,20 +1,20 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 17:41
-Phase: build · unit tests off · 4/23 done · est. API-equivalent cost $1.38
+Voice Room · 2026-10-08 20:13
+Phase: build · unit tests off · 11/23 done · est. API-equivalent cost $5.82
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
 ✅ T-004 Implement enrollment signatures and cosine matcher
-🔨 T-005 Add encrypted file-based signature store with delete
-⬜ T-006 Add model fetch script and WeSpeaker ONNX embedder
-⬜ T-007 Add LibriSpeech download script and corpus index
-⬜ T-008 Build synthetic conversations with ground-truth segments
-⬜ T-009 Add optional SpeechBrain ECAPA embedder
-⬜ T-010 Implement bench metrics, trials, and report writer
-⬜ T-011 Wire make bench to LibriSpeech for all embedders
-⬜ T-012 Choose embedder and threshold from bench results
+✅ T-005 Add encrypted file-based signature store with delete
+✅ T-006 Add model fetch script and WeSpeaker ONNX embedder
+✅ T-007 Add LibriSpeech download script and corpus index
+✅ T-008 Build synthetic conversations with ground-truth segments
+✅ T-009 Add optional SpeechBrain ECAPA embedder
+✅ T-010 Implement bench metrics, trials, and report writer
+✅ T-011 Wire make bench to LibriSpeech for all embedders
+🔨 T-012 Choose embedder and threshold from bench results
 ⬜ T-013 Add streaming VAD with Silero ONNX and energy fallback
 ⬜ T-014 Implement segmenter with turn endpointing and early decision hooks
 ⬜ T-015 Define provider adapter interface and MockProvider
@@ -31,10 +31,14 @@ Phase: build · unit tests off · 4/23 done · est. API-equivalent cost $1.38
 ## Recent commits
 
 ```
-25231ce T-004: Implement enrollment signatures and cosine matcher
-efe0152 T-003: Define pluggable embedder interface with toy embedder
-75b74b0 T-002: Add audio utilities and synthetic speaker generator
-941e141 T-001: Set up project skeleton and smoke runner
-c4de5f7 plan: M0+M1 backlog
-4c25810 chore: initial scaffold
+3f0b28f T-011: Wire make bench to LibriSpeech for all embedders
+5d2dc83 T-010: Implement bench metrics, trials, and report writer
+ce62fbb T-009: Add optional SpeechBrain ECAPA embedder
+fe3536a T-008: Build synthetic conversations with ground-truth segments
+17fab74 T-007: Add LibriSpeech download script and corpus index
+e4fa947 docs: HANDOFF.md for interactive sessions; point to it from CLAUDE.md
+6d86fcc T-006: Add model fetch script and WeSpeaker ONNX embedder
+c6253e8 harness: conversational Telegram, resumable sessions, self-reload, keep harness out of task commits
+d1fb7a5 T-005: Add encrypted file-based signature store with delete
+099463b Commit 1
 ```
