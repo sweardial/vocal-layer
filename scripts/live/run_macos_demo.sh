@@ -1,17 +1,37 @@
 #!/usr/bin/env bash
 # Guided macOS live test (docs/demo-macos.md as one script). Run from anywhere on your Mac:
-#   bash scripts/live/run_macos_demo.sh
+#   bash scripts/live/run_macos_demo.sh              # full run
+#   bash scripts/live/run_macos_demo.sh --demo-only  # skip setup, OpenAI check and enrollment
 # Reads OPENAI_API_KEY from the environment or from ./.env. Writes data/demo-results.txt
 # (answers you give) and data/demo-log.txt (command output). Nothing audio-like is kept.
 set -u
 cd "$(dirname "$0")/../.." || exit 1
-mkdir -p data
-RESULTS=data/demo-results.txt
-LOG=data/demo-log.txt
-: >"$RESULTS"; : >"$LOG"
+# Load configuration first so nothing in .env can redirect the isolated demo store chosen below.
+# VOICEROOM_ENV_FILE / VOICEROOM_DEMO_OUT / VOICEROOM_DEMO_STORE exist for the offline smoke test.
+ENV_FILE="${VOICEROOM_ENV_FILE:-.env}"
+if [ -f "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
+OUT="${VOICEROOM_DEMO_OUT:-data}"
+mkdir -p "$OUT" data
+RESULTS=$OUT/demo-results.txt
+LOG=$OUT/demo-log.txt
+if [ "${1:-}" = "--demo-only" ]; then :; else : >"$RESULTS"; : >"$LOG"; fi
 export PYTHONUNBUFFERED=1
-export VOICEROOM_STORE=/tmp/vr-demo-store
-trap ':' INT   # Ctrl-C stops the running demo, not this script
+# The demo store is a private mktemp dir created by this script. --demo-only resumes the store
+# recorded by a previous run, after checking it is a real (non-symlink), user-owned vr-demo.* dir.
+STORE_REC="$OUT/demo-store.txt"
+if [ "${1:-}" = "--demo-only" ]; then
+  p=$(cat "$STORE_REC" 2>/dev/null) || { echo "No previous run recorded in $STORE_REC; run without --demo-only first."; exit 1; }
+  case "$p" in */../*|*/..|*/./*|"") echo "Refusing suspicious demo store path: $p"; exit 1;; esac
+  case "$(basename "$p")" in vr-demo.*) ;; *) echo "Refusing demo store with unexpected name: $p"; exit 1;; esac
+  { [ -d "$p" ] && [ ! -L "$p" ] && [ -O "$p" ]; } || { echo "Refusing demo store (missing, symlink or not yours): $p"; exit 1; }
+  STORE=$(cd -P "$p" && pwd -P) || exit 1
+else
+  STORE=$(mktemp -d "${TMPDIR:-/tmp}/vr-demo.XXXXXX") || exit 1
+  STORE=$(cd -P "$STORE" && pwd -P)
+  printf '%s\n' "$STORE" >"$STORE_REC"
+fi
+unset VOICEROOM_STORE   # every voiceroom subcommand below passes --store "$STORE" explicitly
+UVR="uv run --with sounddevice"   # sounddevice isn't a project dependency yet; add it for mic/speaker commands
 
 say_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 note() { printf '%s\n' "$*" | tee -a "$RESULTS" >/dev/null; }
@@ -20,8 +40,10 @@ yn() { local a; while true; do read -r -p "$1 [y/n] " a; case "$a" in y|Y) retur
 ask() { local a; read -r -p "$1 " a; note "$1 $a"; }
 run() { # run a command, show and log its output, remember failures
   printf '\n$ %s\n' "$*" | tee -a "$LOG"
+  trap ':' INT   # Ctrl-C ends the running command (e.g. a demo), not this script
   "$@" 2>&1 | tee -a "$LOG"
   local rc=${PIPESTATUS[0]}
+  trap - INT
   [ "$rc" -ne 0 ] && { echo "(exit code $rc)" | tee -a "$LOG"; note "FAILED (exit $rc): $*"; }
   return "$rc"
 }
@@ -29,7 +51,6 @@ run() { # run a command, show and log its output, remember failures
 # ---- 0. prerequisites ------------------------------------------------------------------
 say_ "0. Checking prerequisites"
 [ "$(uname)" = Darwin ] || { echo "This is for macOS."; exit 1; }
-if [ -f .env ]; then set -a; . ./.env; set +a; fi
 command -v uv >/dev/null || { echo "Install uv first: brew install uv"; exit 1; }
 [ -n "${OPENAI_API_KEY:-}" ] || { echo "OPENAI_API_KEY not set. Put OPENAI_API_KEY=sk-... in .env in the repo root, or export it."; exit 1; }
 note "Environment: $(sw_vers -productVersion) $(uname -m), $(uv run python -V 2>&1)"
@@ -40,37 +61,57 @@ TWO=0; yn "Is a second person (Bob) with you for the isolation and collaboration
 note "Second person present: $TWO"
 pause "Quiet room? Press Enter to start. "
 
+DEMO_ONLY=0; [ "${1:-}" = "--demo-only" ] && DEMO_ONLY=1   # skip setup, OpenAI check and enrollment (reuse the stored voices)
+if [ "$DEMO_ONLY" = 0 ]; then
 # ---- 1. setup --------------------------------------------------------------------------
 say_ "1. Setup"
 run uv sync || { echo "Setup failed, see $LOG"; exit 1; }
 run uv run python scripts/fetch_models.py || { echo "Model fetch failed, see $LOG"; exit 1; }
 ls models/ | tee -a "$LOG"
-run uv run voiceroom --help >/dev/null || exit 1
+run $UVR voiceroom --help >/dev/null || exit 1
 note "Setup OK"
 
 # ---- 2. raw OpenAI path check (cheap, validates key and network) ------------------------
 say_ "2. Raw OpenAI check (no mic needed)"
-run say -o data/hello.wav --data-format=LEI16@16000 "Hello, can you hear me? Please say a short greeting."
-run uv run python scripts/live/openai_realtime_check.py --wav data/hello.wav --label alice
-if [ -f data/out/openai_reply.wav ]; then
-  echo "Playing the reply..."; afplay data/out/openai_reply.wav
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/vr-demo-audio.XXXXXX") || exit 1   # fresh dir: never overwrites earlier audio
+WAV="$WORK/hello.wav"; REPLY="$WORK/reply.wav"
+run say -o "$WAV" --data-format=LEI16@16000 "Hello, can you hear me? Please say a short greeting."
+if run uv run python scripts/live/openai_realtime_check.py --wav "$WAV" --label alice --out "$REPLY" && [ -s "$REPLY" ]; then
+  echo "Playing the reply..."; afplay "$REPLY"
   yn "Was the reply intelligible speech?" && note "OpenAI reply intelligible: y" || note "OpenAI reply intelligible: n"
 else
-  note "OpenAI check produced no reply file"
-  yn "The OpenAI check failed. Continue anyway?" || { echo "Stopped. Results: $RESULTS"; exit 1; }
+  note "OpenAI check FAILED or produced no reply"
+  yn "The OpenAI check failed. Continue anyway?" || { rm -rf "$WORK"; echo "Stopped. Results: $RESULTS"; exit 1; }
 fi
 grep -h "first audio after" "$LOG" | tail -1 | tee -a "$RESULTS"
 
 # ---- 3. enrollment ---------------------------------------------------------------------
 say_ "3. Enrollment: Alice, then Bob (about 25 s each). Speak naturally the whole time; answer y at the consent prompt."
-pause "Alice, get ready to read a paragraph aloud. Press Enter to record. "
-run uv run voiceroom enroll --name alice
+read_aloud() {
+  cat <<'EOF'
+
+  READ THIS ALOUD at a natural pace, then keep reading or talking until recording stops (~25 s):
+
+  "The old lighthouse stood at the edge of the harbor, its white paint worn thin by decades of
+  salt and wind. Every morning the fishermen set out before sunrise, counting on the steady
+  light to guide them home. On quiet evenings the keeper would climb the narrow stairs, trim
+  the lamp, and watch the boats return one by one. He often said that patience was the real
+  trade of the sea: waiting for the tide, waiting for the weather, and waiting for the
+  familiar sound of an engine coming across the dark water."
+
+EOF
+}
+read_aloud
+pause "Alice, get ready to read the text above. Press Enter to record. "
+run $UVR voiceroom enroll --store "$STORE" --name alice || { echo "Enrollment failed, see $LOG"; exit 1; }
 if [ "$TWO" = 1 ]; then
-  pause "Now Bob. Press Enter to record. "
-  run uv run voiceroom enroll --name bob
+  read_aloud
+  pause "Now Bob: read the text above. Press Enter to record. "
+  run $UVR voiceroom enroll --store "$STORE" --name bob || { echo "Enrollment failed, see $LOG"; exit 1; }
 fi
-run uv run voiceroom list
+run $UVR voiceroom list --store "$STORE"
 yn "Does the list show the expected names?" && note "Enroll + list OK: y" || note "Enroll + list OK: n"
+fi
 
 # ---- 4. isolation ----------------------------------------------------------------------
 if [ "$TWO" = 1 ]; then
@@ -84,7 +125,7 @@ if [ "$TWO" = 1 ]; then
 Do each line about 5 times if you can. Press Ctrl-C when finished.
 EOF
   pause "Press Enter to start the demo. "
-  run uv run voiceroom demo --mode isolation --owner alice --provider openai
+  run $UVR voiceroom demo --store "$STORE" --mode isolation --owner alice --provider openai --no-cohort
   echo; echo "Answer from what you saw in the log lines above (speaker, forwarded/dropped)."
   ask "Isolation: how many times was Bob forwarded (out of ~5)?"
   ask "Isolation: how many times was Alice dropped (out of ~5)?"
@@ -103,7 +144,7 @@ EOF
 Press Ctrl-C when finished.
 EOF
   pause "Press Enter to start the demo. "
-  run uv run voiceroom demo --mode collaboration --provider openai
+  run $UVR voiceroom demo --store "$STORE" --mode collaboration --provider openai --no-cohort
   yn "Was speaker attribution correct (steps 3 and 4)?" && note "Collaboration attribution correct: y" || note "Collaboration attribution correct: n"
 else
   say_ "Skipping isolation and collaboration (needs a second person). They stay unverified."
@@ -112,9 +153,10 @@ fi
 
 # ---- 6. cleanup and report -------------------------------------------------------------
 say_ "6. Cleanup"
-run uv run voiceroom delete --name alice
-[ "$TWO" = 1 ] && run uv run voiceroom delete --name bob
-rm -rf /tmp/vr-demo-store data/hello.wav data/out/openai_reply.wav
+run $UVR voiceroom delete --store "$STORE" --name alice
+[ "$TWO" = 1 ] && run $UVR voiceroom delete --store "$STORE" --name bob
+rm -rf "$STORE" "$STORE_REC"
+[ -n "${WORK:-}" ] && rm -rf "$WORK"   # run-owned mktemp dir with the test audio
 ask "Anything confusing or any other failures?"
 
 say_ "Done. Results are in $RESULTS (command output in $LOG)."

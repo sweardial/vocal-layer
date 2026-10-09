@@ -116,7 +116,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: The pipeline issues `provider.interrupt()` and flushes the sink once a turn by an accepted speaker is confirmed during playback (OpenAI adapter: `response.cancel` + `conversation.item.truncate` with played ms). Non-owner speech never interrupts in isolation mode. `scripts/smoke/smoke_bargein.py` uses MockProvider with a long reply and checks two cases: an owner turn mid-reply triggers exactly one interrupt and a sink flush, and a non-owner turn triggers none. `make check` green.
   depends: T-021
 
-- [!] T-023 | M1 | Write macOS demo checklist and request human live test
+- [x] T-023 | M1 | Write macOS demo checklist and request human live test
   goal: Write exact macOS steps for the human to verify enrollment, isolation, collaboration, and the live OpenAI path with a real mic and speaker.
   accept: `docs/demo-macos.md` covers: prerequisites (uv, Python 3.12, `OPENAI_API_KEY`); `uv sync`; `fetch_models.py`; `voiceroom enroll` ×2; `voiceroom demo --mode isolation --owner alice --provider openai` with a script of who says what and the expected outcome; the collaboration run; `scripts/live/openai_realtime_check.py`; headphones advice to avoid echo; what to report back. Write `.work/tasks/T-023/needs_human.md` with the checklist link and a short results form. `make check` green.
   depends: T-018, T-022
@@ -168,3 +168,16 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: Per D-015 owner decision, the shipped continuity rule (3 bad windows in a row + foreign-enrolled guard, drop 0.4) leaks 42 % of 0.5 s interjections at owner FR 10 % (windows bench). Build 1 s windows and/or VAD-aware splitting (split a turn at pauses/speaker change) to reduce that leak.
   accept: rerun `python -m voiceroom.bench.windows`: owner FR (turns >= 1 s) < 5 % and 0.5 s leak below 42 %, report committed; `make check` green.
   depends: T-029
+
+- [ ] T-033 | M1 | Add sounddevice as a dependency and fix demo docs
+  goal: Human live test (T-023): `voiceroom enroll`/`demo` fail on a fresh Mac with "cannot record" because `sounddevice` is not a dependency. Add it (main dependency or an `audio` extra), update README and docs/demo-macos.md (remove the `uv run --with sounddevice` workaround note).
+  accept: `uv sync` on a clean env provides sounddevice (import works); docs updated; `make check` green.
+  depends: T-023
+- [ ] T-034 | M1 | Make the AS-norm cohort file portable across machines
+  goal: Human live test (T-023): `data/cohort-wespeaker-resnet34.npz` is encrypted with the builder's key, so the demo fails elsewhere with "bad cohort file (cannot decrypt ...)". Store the cohort unencrypted (it holds no personal data) or build it per machine; then run the demo without `--no-cohort`.
+  accept: cohort loads on a machine with a different key; smoke covers it; docs drop the `--no-cohort` note; `make check` green.
+  depends: T-023
+- [ ] T-035 | M1 | Reduce owner false-reject on real mic audio
+  goal: Human live test (T-023, wespeaker, `--no-cohort`): 3 of 8 alice-identified turns were dropped (1.15 s, 1.5 s, 0.16 s turns), i.e. owner false-reject on real MacBook mic audio. Investigate and tune (threshold, continuity rule, short-turn handling); also re-test narrowband (phone) voices.
+  accept: documented analysis and a change or decision in decisions.md; bench numbers not regressed; `make check` green.
+  depends: T-023, T-034

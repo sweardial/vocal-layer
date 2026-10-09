@@ -12,7 +12,11 @@ The live steps call the OpenAI Realtime API and cost a little money.
   lower the volume and keep the model's output quiet; echo failures are a known limit, so note
   them in the results rather than treating them as a bug.
 - `uv` (`brew install uv`) and Python 3.12 (`uv python install 3.12`).
-- PortAudio comes with the `sounddevice` wheel; no extra brew install should be needed.
+- `sounddevice` is not yet a project dependency (see T-033). Until then run the mic commands as
+  `uv run --with sounddevice voiceroom ...`.
+- The shipped cohort file (`data/cohort-*.npz`) only decrypts on the machine that built it (T-034);
+  until fixed, add `--no-cohort` to `demo`.
+- `scripts/live/run_macos_demo.sh` is a guided version of this checklist (`--demo-only` skips setup and enrollment).
 - Grant your terminal app microphone access (System Settings > Privacy & Security > Microphone).
   Without it, recordings are silent.
 - An API key: `export OPENAI_API_KEY=sk-...` (same shell as the commands below).
@@ -24,17 +28,20 @@ The live steps call the OpenAI Realtime API and cost a little money.
 uv sync
 uv run python scripts/fetch_models.py      # downloads wespeaker + silero into models/
 ls models/                                  # expect wespeaker*.onnx and silero_vad.onnx
-uv run voiceroom --help
+uv run --with sounddevice voiceroom --help
 ```
 
 Use a throwaway store so nothing real is touched:
 
 ```bash
-export VOICEROOM_STORE=/tmp/vr-demo-store
+export VOICEROOM_STORE=$(mktemp -d "${TMPDIR:-/tmp}/vr-demo.XXXXXX")   # fresh, private; also passed as --store
+export DEMO_AUDIO=$(mktemp -d "${TMPDIR:-/tmp}/vr-demo-audio.XXXXXX")   # test clip + reply go here
 ```
 
 If the default mic or speaker is wrong, pass `--input-device` / `--output-device` (index or name)
 to `enroll` / `demo`.
+
+Keep using the same terminal window for the whole checklist (the two variables above are only set there).
 
 ## 2. Enrollment (twice)
 
@@ -42,9 +49,9 @@ Each enrollment records ~25 s. Speak naturally the whole time (read a paragraph 
 Answer `y` at the consent prompt.
 
 ```bash
-uv run voiceroom enroll --name alice     # Alice speaks
-uv run voiceroom enroll --name bob       # Bob speaks
-uv run voiceroom list                    # expect both names
+uv run --with sounddevice voiceroom enroll --store "$VOICEROOM_STORE" --name alice     # Alice speaks
+uv run --with sounddevice voiceroom enroll --store "$VOICEROOM_STORE" --name bob       # Bob speaks
+uv run --with sounddevice voiceroom list --store "$VOICEROOM_STORE"                    # expect both names
 ```
 
 Expected: each command succeeds, `list` shows `alice` and `bob`. Nothing audio-like is written to
@@ -53,7 +60,7 @@ the store (encrypted signatures only).
 ## 3. Isolation demo (live OpenAI)
 
 ```bash
-uv run voiceroom demo --mode isolation --owner alice --provider openai
+uv run --with sounddevice voiceroom demo --store "$VOICEROOM_STORE" --mode isolation --owner alice --provider openai --no-cohort
 ```
 
 Script (leave a ~1 s pause between lines; Alice wears headphones):
@@ -72,7 +79,7 @@ score, forwarded/dropped) and how long replies take to start.
 ## 4. Collaboration demo (live OpenAI)
 
 ```bash
-uv run voiceroom demo --mode collaboration --provider openai
+uv run --with sounddevice voiceroom demo --store "$VOICEROOM_STORE" --mode collaboration --provider openai --no-cohort
 # optional second run: add --unknown label   (strangers get a generic label instead of being dropped)
 ```
 
@@ -92,21 +99,20 @@ Ctrl-C to stop. Without `--unknown label`, a third unenrolled person's speech sh
 Make a test clip, then send it:
 
 ```bash
-mkdir -p data
-say -o data/hello.wav --data-format=LEI16@16000 "Hello, can you hear me? Please say a short greeting."
-uv run python scripts/live/openai_realtime_check.py --wav data/hello.wav --label alice
-afplay data/out/openai_reply.wav
+say -o "$DEMO_AUDIO/hello.wav" --data-format=LEI16@16000 "Hello, can you hear me? Please say a short greeting."
+uv run python scripts/live/openai_realtime_check.py --wav "$DEMO_AUDIO/hello.wav" --label alice --out "$DEMO_AUDIO/reply.wav"
+afplay "$DEMO_AUDIO/reply.wav"      # only if the command above succeeded
 ```
 
-Expected: prints `first audio after N.NNs`, writes `data/out/openai_reply.wav`, and the reply is
+Expected: prints `first audio after N.NNs`, writes `$DEMO_AUDIO/reply.wav`, and the reply is
 intelligible speech.
 
 ## 6. Cleanup
 
 ```bash
-uv run voiceroom delete --name alice
-uv run voiceroom delete --name bob
-rm -rf /tmp/vr-demo-store data/hello.wav
+uv run --with sounddevice voiceroom delete --store "$VOICEROOM_STORE" --name alice
+uv run --with sounddevice voiceroom delete --store "$VOICEROOM_STORE" --name bob
+rm -rf "$VOICEROOM_STORE" "$DEMO_AUDIO"
 ```
 
 ## 7. What to report back
