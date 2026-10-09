@@ -25,6 +25,9 @@ This repo is built by an unattended agent loop (`agentops/`). You only get invol
 `/status` `/pause` `/resume` `/approve` `/plan <next goal>` `/tests on|off` `/help`. Any other text answers a blocked task
 (`T-007: …` if several are blocked) or becomes a note in `.work/inbox.md` that every agent reads.
 
+## Live demo
+`uv sync` installs everything for the mic/speaker demo, including `sounddevice`. See [docs/demo-macos.md](docs/demo-macos.md).
+
 ## Testing policy
 Unit tests are **off** until you send `/tests on`. Until then agents prove changes with a few disposable smoke scripts (`scripts/smoke/`, run by `make check`). The current policy is in `.work/POLICY.md`.
 

@@ -1,8 +1,8 @@
 """Audio sources and sinks: live mic/speaker (sounddevice, lazy) and file stand-ins.
 
 Sources are async iterators of 512-sample float32 frames at 16 kHz (what `Pipeline.run` eats).
-Sinks take `AudioOut` chunks from a provider. Live I/O needs the optional `sounddevice` package
-(`uv pip install sounddevice`) and PortAudio; nothing here imports it at module load.
+Sinks take `AudioOut` chunks from a provider. Live I/O needs the `sounddevice` package
+(a project dependency) and PortAudio; nothing here imports it at module load.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ def _sounddevice():
         import sounddevice as sd
     except (ImportError, OSError) as exc:  # OSError: PortAudio library missing
         raise RuntimeError(
-            "live audio needs the 'sounddevice' package and PortAudio (uv pip install sounddevice)"
+            "live audio needs the 'sounddevice' package and PortAudio (run `uv sync`)"
         ) from exc
     return sd
 

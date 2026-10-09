@@ -31,7 +31,7 @@ else
   printf '%s\n' "$STORE" >"$STORE_REC"
 fi
 unset VOICEROOM_STORE   # every voiceroom subcommand below passes --store "$STORE" explicitly
-UVR="uv run --with sounddevice"   # sounddevice isn't a project dependency yet; add it for mic/speaker commands
+UVR="uv run"
 
 say_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 note() { printf '%s\n' "$*" | tee -a "$RESULTS" >/dev/null; }

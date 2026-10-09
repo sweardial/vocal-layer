@@ -12,8 +12,7 @@ The live steps call the OpenAI Realtime API and cost a little money.
   lower the volume and keep the model's output quiet; echo failures are a known limit, so note
   them in the results rather than treating them as a bug.
 - `uv` (`brew install uv`) and Python 3.12 (`uv python install 3.12`).
-- `sounddevice` is not yet a project dependency (see T-033). Until then run the mic commands as
-  `uv run --with sounddevice voiceroom ...`.
+- `sounddevice` (PortAudio is bundled in the macOS wheel) is a normal project dependency; `uv sync` installs it.
 - The shipped cohort file (`data/cohort-*.npz`) only decrypts on the machine that built it (T-034);
   until fixed, add `--no-cohort` to `demo`.
 - `scripts/live/run_macos_demo.sh` is a guided version of this checklist (`--demo-only` skips setup and enrollment).
@@ -28,7 +27,7 @@ The live steps call the OpenAI Realtime API and cost a little money.
 uv sync
 uv run python scripts/fetch_models.py      # downloads wespeaker + silero into models/
 ls models/                                  # expect wespeaker*.onnx and silero_vad.onnx
-uv run --with sounddevice voiceroom --help
+uv run voiceroom --help
 ```
 
 Use a throwaway store so nothing real is touched:
@@ -49,9 +48,9 @@ Each enrollment records ~25 s. Speak naturally the whole time (read a paragraph 
 Answer `y` at the consent prompt.
 
 ```bash
-uv run --with sounddevice voiceroom enroll --store "$VOICEROOM_STORE" --name alice     # Alice speaks
-uv run --with sounddevice voiceroom enroll --store "$VOICEROOM_STORE" --name bob       # Bob speaks
-uv run --with sounddevice voiceroom list --store "$VOICEROOM_STORE"                    # expect both names
+uv run voiceroom enroll --store "$VOICEROOM_STORE" --name alice     # Alice speaks
+uv run voiceroom enroll --store "$VOICEROOM_STORE" --name bob       # Bob speaks
+uv run voiceroom list --store "$VOICEROOM_STORE"                    # expect both names
 ```
 
 Expected: each command succeeds, `list` shows `alice` and `bob`. Nothing audio-like is written to
@@ -60,7 +59,7 @@ the store (encrypted signatures only).
 ## 3. Isolation demo (live OpenAI)
 
 ```bash
-uv run --with sounddevice voiceroom demo --store "$VOICEROOM_STORE" --mode isolation --owner alice --provider openai --no-cohort
+uv run voiceroom demo --store "$VOICEROOM_STORE" --mode isolation --owner alice --provider openai --no-cohort
 ```
 
 Script (leave a ~1 s pause between lines; Alice wears headphones):
@@ -79,7 +78,7 @@ score, forwarded/dropped) and how long replies take to start.
 ## 4. Collaboration demo (live OpenAI)
 
 ```bash
-uv run --with sounddevice voiceroom demo --store "$VOICEROOM_STORE" --mode collaboration --provider openai --no-cohort
+uv run voiceroom demo --store "$VOICEROOM_STORE" --mode collaboration --provider openai --no-cohort
 # optional second run: add --unknown label   (strangers get a generic label instead of being dropped)
 ```
 
@@ -110,8 +109,8 @@ intelligible speech.
 ## 6. Cleanup
 
 ```bash
-uv run --with sounddevice voiceroom delete --store "$VOICEROOM_STORE" --name alice
-uv run --with sounddevice voiceroom delete --store "$VOICEROOM_STORE" --name bob
+uv run voiceroom delete --store "$VOICEROOM_STORE" --name alice
+uv run voiceroom delete --store "$VOICEROOM_STORE" --name bob
 rm -rf "$VOICEROOM_STORE" "$DEMO_AUDIO"
 ```
 

@@ -169,7 +169,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: rerun `python -m voiceroom.bench.windows`: owner FR (turns >= 1 s) < 5 % and 0.5 s leak below 42 %, report committed; `make check` green.
   depends: T-029
 
-- [ ] T-033 | M1 | Add sounddevice as a dependency and fix demo docs
+- [x] T-033 | M1 | Add sounddevice as a dependency and fix demo docs
   goal: Human live test (T-023): `voiceroom enroll`/`demo` fail on a fresh Mac with "cannot record" because `sounddevice` is not a dependency. Add it (main dependency or an `audio` extra), update README and docs/demo-macos.md (remove the `uv run --with sounddevice` workaround note).
   accept: `uv sync` on a clean env provides sounddevice (import works); docs updated; `make check` green.
   depends: T-023

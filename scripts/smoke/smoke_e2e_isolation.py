@@ -143,7 +143,7 @@ class FlakyProvider(MockProvider):
 
 n_turns = len(pipe.records)
 # Failure then recovery: the failed turn is recorded (fixed code, no payload), later ones commit.
-fl = make_pipe(FlakyProvider())
+fl = make_pipe(FlakyProvider(), max_inflight_identify=1000)  # no busy drops under CPU load
 twice = np.concatenate(
     [conv.audio, gap, conv.audio]
 )  # first owner send fails, a later one succeeds
