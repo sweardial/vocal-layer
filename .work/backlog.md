@@ -185,3 +185,78 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: T-035's cause of live owner false-reject is inferred. Make `voiceroom demo` (debug flag) log, per dropped turn, the rule that rejected it and the window scores (numbers only, no audio/embeddings); then a human reruns the demo.
   accept: smoke proves the log line on a synthetic turn; `make check` green.
   depends: T-035
+
+## M3: LiveKit rooms, invites, multi-mic sessions
+
+Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source layer: one VAD and segmenter per participant track, a shared matcher, one provider, and serialized commits. Identity comes from the track and is *verified* by voice 1:1, because best-of-N identification on short real-mic turns is what caused owner false-rejects (T-023, D-014 to D-017). Integration code for LiveKit lives in `src/voiceroom/adapters/` (the provider-import grep in `smoke_mock_provider.py` already bans `livekit` elsewhere). Everything is built against an in-memory `FakeRoom` first, then a local `livekit-server --dev` (localhost only, no internet). Real devices and LiveKit Cloud come last.
+
+- [ ] T-037 | M3 | Free smoke-time headroom before M3 adds room smokes
+  goal: `make smoke` is 40–59 s against the 60 s budget (T-030/T-036), and M3 adds 5–6 smokes, so cut the total well below the budget.
+  accept: `scripts/smoke/run_all.py` prints a per-script time table sorted by duration. The slowest smokes are trimmed (fewer conversations, cached signatures, shared temp assets) or run concurrently via a `-j` option the Makefile uses. With real models and data present in the container, `make smoke` total is ≤ 35 s, recorded in summary.md as the median of 3 runs. No smoke loses its key assertion; each trimmed check is listed in the summary. `make check` green.
+  depends: none
+
+- [ ] T-038 | M3 | Extract a per-source turn processor from Pipeline
+  goal: Split `Pipeline` into a reusable per-source `SourceProcessor` (VAD → segmenter → identify → policy decision → TurnRecord) and the single-source wrapper, without behavior change, so a room can run one processor per track.
+  accept: `voiceroom/pipeline.py` (or a new `voiceroom/source.py`) exposes `SourceProcessor(source_id, vad, segmenter, matcher, policy)` yielding decided turns (audio, label, decision, timings) without touching the provider. The existing `Pipeline.run` uses it and keeps its public signature. All existing smokes are unchanged and green. `python -m voiceroom.bench.pipeline` on the same seed reproduces owner FR, non-owner FA, attribution and commit p95 within ±1 turn / ±30 ms of `reports/pipeline-wespeaker-resnet34.md` (numbers in summary.md). `make check` green.
+  depends: T-036
+
+- [ ] T-039 | M3 | Build multi-source room pipeline with serialized commits
+  goal: Run N audio sources (added and removed at runtime) through their own SourceProcessors into one provider, committing accepted turns one at a time in end-of-speech order.
+  accept: `voiceroom/room.py` has `RoomPipeline(provider, policy_factory, matcher, ...)` with `add_source(source_id, frames, claimed_identity=None)`, `remove_source(id)` (flushes the open turn), and `run()`. A commit queue guarantees that no provider `send_turn` calls interleave. Turns that end while another commit is in flight are queued and committed in order. Per-turn records include source_id and queue wait. `scripts/smoke/smoke_room_mux.py` streams 3 synthetic sources with interleaved and partly overlapping speech (toy embedder, EnergyVAD, MockProvider) and asserts every accepted turn is committed exactly once, in end-time order, with the right source, and that a source added mid-run and one removed mid-turn both behave. Smoke < 5 s. `make check` green.
+  depends: T-038
+
+- [ ] T-040 | M3 | Add track-identity verification policy (verified and shared tracks)
+  goal: Per source, either trust-but-verify the track's claimed identity with a 1:1 voice check, or (shared mic) identify by voice among session members with the existing collaboration rules.
+  accept: `TrackPolicy` in `policy.py` has two modes. `verified`: compare against the claimed signature only and accept at a 1:1 threshold. A confident match to another member gives `mismatch` → relabel or drop (configurable). Otherwise the turn is unknown → the session's unknown policy. The continuity rule is relaxed to the short/lenient variant. `shared` reuses CollaborationPolicy. Thresholds are in `config.py` with a comment pointing at the bench that will calibrate them (T-042). `scripts/smoke/smoke_room_identity.py` (toy embedder) covers: an owner on their own track is accepted, including 1–2 s turns; another member speaking on alice's track is relabelled or dropped per config; a stranger on alice's track is dropped or labelled Unknown; and a shared-mic track with 2 members is attributed correctly. `make check` green.
+  depends: T-039
+
+- [ ] T-041 | M3 | Suppress cross-talk bleed between co-located microphones
+  goal: When two participants' mics pick up the same speech (same room), commit it once, from the speaker's own track, instead of duplicating or mislabelling it.
+  accept: `voiceroom/room.py` has a bleed detector over concurrent turns from different sources. It uses time overlap (≥ 50 %), level difference and voice match to the other track's claimed identity, and drops the copy on the quieter, non-matching track. It never drops a turn whose voice verifies as its own track's owner. `voiceroom.synth`/conversations gain a bleed option (a copy of speaker A in B's track at −10…−20 dB, 5–40 ms delay, with noise). `scripts/smoke/smoke_room_bleed.py` asserts: no duplicate commits at −12 dB bleed; true simultaneous speech by A and B on their own tracks yields two commits; and with bleed off, results match smoke_room_mux. `make check` green.
+  depends: T-040
+
+- [ ] T-042 | M3 | Benchmark room isolation and attribution on LibriSpeech multi-track audio
+  goal: Measure verified-track owner FR, impostor-on-track catch rate, bleed duplicate rate and attribution with real models, then calibrate the T-040/T-041 thresholds.
+  accept: `python -m voiceroom.bench.room` (run by `make bench`) builds multi-track LibriSpeech conversations (3 participants, optional bleed at −12 dB, impostor turns on a member's track, a shared-mic track, optional narrowband channel per D-017) and streams them through RoomPipeline with SileroVAD, wespeaker and MockProvider. It writes `reports/room-wespeaker-resnet34.md` with: owner FR on own track by length bucket (target < 5 % for ≥ 1 s), impostor accept rate, bleed duplicate rate, attribution accuracy, and commit latency p50/p95 including queue wait (target p95 < 700 ms). The verify threshold is set from it and recorded in a new D-0xx. Bench runtime < 5 min. `smoke_room_bench.py` runs a 1-conversation version or SKIPs if assets are absent. `make check` green.
+  depends: T-040, T-041
+
+- [ ] T-043 | M3 | Define room transport interface with in-memory FakeRoom
+  goal: Add a provider-agnostic `RoomTransport` (participants joining and leaving, per-participant 16 kHz audio frames and attributes, publishing the agent's audio) plus `FakeRoom`, and drive RoomPipeline from it.
+  accept: `voiceroom/rooms/base.py` has `RoomTransport` (async `connect`, an event stream of `ParticipantJoined(id, identity, attributes)` / `TrackAudio` iterators / `ParticipantLeft`, `publish_audio(AudioOut)`, `close`) with no LiveKit types. `voiceroom/rooms/fake.py` has `FakeRoom` (scripted participants from wavs or synth, records published audio). `voiceroom/rooms/runner.py` has `RoomAgent(transport, room_pipeline, provider)`, which maps join/leave to add/remove_source and the participant identity to claimed_identity, and plays provider audio into `publish_audio`. `scripts/smoke/smoke_room_fake.py` covers 2 participants joining at different times, one leaving mid-turn, correct labels in MockProvider, and published reply audio being non-empty. `make check` green.
+  depends: T-039
+
+- [ ] T-044 | M3 | Fetch a pinned local LiveKit server and prove an offline loopback
+  goal: Make a local `livekit-server --dev` usable headless in the container, and verify the SDK facts D-018 leaves open: 16 kHz AudioStream resampling, two clients in one process, and no TURN needed on localhost.
+  accept: `scripts/fetch_livekit.py` downloads a pinned `livekit-server` release (sha256-verified, linux x86_64/arm64 and macOS arm64) to `data/bin/`. Optional extra `livekit` adds pinned `livekit` and `livekit-api`. `voiceroom/adapters/livekit_server.py` has a context manager that starts the dev server on a free localhost port, waits for readiness and always kills it. `scripts/smoke/smoke_livekit_loopback.py` (SKIP if the binary or extra is absent) publishes a synthetic 2 s tone from client A and asserts client B receives ≥ 1.8 s of it at 16 kHz with the right participant identity, in < 10 s total. It is run in the container after fetching, with the result in summary.md. The verified answers (resampling, ports, one-process clients) go in D-018. `make check` green.
+  depends: T-037
+
+- [ ] T-045 | M3 | Implement LiveKit room transport against the local server
+  goal: Implement `RoomTransport` on the LiveKit rtc SDK so the room agent joins as a bot, subscribes to every participant's audio, and publishes model audio as its own track.
+  accept: `voiceroom/adapters/livekit_room.py` has `LiveKitRoom(url, token)`. It subscribes only to audio tracks, converts to 16 kHz mono via our `StreamResampler` (or the SDK if T-044 proved it), takes the participant identity and `voiceroom_user` attribute as the claimed identity, ignores its own track, and publishes 24 kHz provider audio through `rtc.AudioSource`. Credentials come from `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` (dev defaults only for localhost) and are never logged. `scripts/smoke/smoke_livekit_room.py` (SKIP if the binary or extra is absent) runs the local server, 2 publisher clients streaming synthetic speakers, and the bot with MockProvider, then asserts turns committed with the right labels and that a subscriber receives the bot's reply audio, in < 15 s. `make check` green.
+  depends: T-043, T-044
+
+- [ ] T-046 | M3 | Add sessions and invites with membership-driven policy
+  goal: Let an owner create a session, invite another enrolled user with a signed expiring single-use code, accept or revoke it, and have membership drive who the room agent accepts.
+  accept: `voiceroom/sessions.py` has `SessionStore(root, key)` (sessions: id, owner, mode isolation|collaboration, members, room name, unknown policy; encrypted like signatures). `create_session`, `invite(session, user) -> code` (HMAC-signed with key, expiry, single-use; fails if the user has no enrolled signature or consent), `accept(code)`, `revoke(session, user)`, `list`. `join_token(session, user)` uses livekit-api inside `adapters/` (identity=user, attribute `voiceroom_user`, room grant). A running RoomAgent picks up membership changes: a revoked member's turns become unknown and the participant is removed (FakeRoom; LiveKit RoomService kick is behind the adapter). Codes and tokens are never logged. `scripts/smoke/smoke_sessions.py` covers create → invite → accept → member accepted in FakeRoom; expired, reused, tampered and non-enrolled codes are rejected; revoke stops forwarding mid-session; in isolation mode, only the owner is forwarded even with members present. `make check` green.
+  depends: T-040, T-043
+
+- [ ] T-047 | M3 | Support barge-in and reply playback in rooms
+  goal: Reuse M1 barge-in for rooms: an accepted participant who starts speaking during a model reply interrupts it. Non-accepted or bleed speech never does.
+  accept: RoomAgent stops publishing, flushes the room AudioSource buffer, and calls `provider.interrupt(played_ms)` with the ms actually published, once an accepted turn is confirmed during playback. In rooms, the agent's own published audio is never treated as a participant source. `scripts/smoke/smoke_room_bargein.py` (FakeRoom, MockProvider with a long reply) asserts: a member mid-reply → exactly one interrupt with a plausible played_ms; a stranger or bleed copy → none; and in isolation a non-owner member → none. `make check` green.
+  depends: T-043, T-041
+
+- [ ] T-048 | M3 | Add CLI for sessions, join tokens, and the room agent
+  goal: Expose `voiceroom session create|invite|accept|revoke|list`, `voiceroom token --session S --user U`, and `voiceroom room --session S --transport livekit|fake --provider openai|mock`.
+  accept: Subcommands use the stores from T-046. `room` prints one line per turn (source, claimed identity, decision, label, latency) with no audio, embeddings, tokens or invite codes. `--debug` reuses the T-036 rule logging. `scripts/smoke/smoke_cli_room.py` runs via subprocess with `--embedder toy --transport fake --provider mock`: enroll ×3 → session create (collaboration) → invite/accept bob → room on a scripted 3-participant FakeRoom (asserts alice and bob committed, carol dropped/Unknown) → revoke bob → bob dropped. If the LiveKit binary and extra are present, it also runs `room --transport livekit` for one short scripted conversation. `make check` green.
+  depends: T-045, T-046, T-047
+
+- [ ] T-049 | M3 | Measure end-to-end room latency through the local LiveKit server
+  goal: Report end-of-speech → commit and commit → first published reply audio through the real LiveKit transport, so the 700 ms target is checked with WebRTC jitter buffering in the path.
+  accept: `python -m voiceroom.bench.room --transport livekit` (part of `make bench` when the binary and extra are present) streams ≥ 5 LibriSpeech multi-track conversations through the local server in realtime. It writes a "LiveKit transport" section in `reports/room-wespeaker-resnet34.md` with commit latency p50/p95 versus FakeRoom, transport-added delay, and the reply round trip with MockProvider. If p95 ≥ 700 ms, it adds a follow-up task naming the dominant stage. The key numbers go in summary.md. `make check` green.
+  depends: T-042, T-045
+
+- [ ] T-050 | M3 | Write multi-device room demo checklist and request human live test
+  goal: Have the human verify a real multi-mic session (2–3 people on separate devices, plus one co-located pair for bleed), including the M1 items still unverified live: barge-in, collaboration attribution, and T-036 rule logging.
+  accept: `docs/demo-room.md` and `scripts/live/run_room_demo.sh` give exact macOS steps: `uv sync --extra livekit`, `fetch_livekit.py` (or LiveKit Cloud), enroll, session create/invite/accept, `voiceroom room --transport livekit --provider openai --debug`, and how participants join (token via `voiceroom token`, and a browser client URL). They also include a script of who says what and the expected outcome per step (isolation, collaboration, impostor on a member's device, co-located bleed, barge-in, revoke) and a results form. `.work/tasks/T-050/needs_human.md` asks one question: local server on the Mac's LAN vs a LiveKit Cloud project (keys in `.env.agent`), with a recommendation. `make check` green.
+  depends: T-048, T-049
+  human: Choose LiveKit hosting (local LAN or Cloud keys), then run the multi-device checklist with real people and an OpenAI key, and report the results.

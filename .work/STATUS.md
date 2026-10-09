@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 15:39
-Phase: build · unit tests off · 36/37 done · est. API-equivalent cost $60.58
+Voice Room · 2026-10-09 16:52
+Phase: plan · unit tests off · 37/37 done · est. API-equivalent cost $61.32
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -39,12 +39,13 @@ Phase: build · unit tests off · 36/37 done · est. API-equivalent cost $60.58
 ✅ T-033 Add sounddevice as a dependency and fix demo docs
 ✅ T-034 Make the AS-norm cohort file portable across machines
 ✅ T-035 Reduce owner false-reject on real mic audio
-🔨 T-036 Log which continuity rule fired in the live demo
+✅ T-036 Log which continuity rule fired in the live demo
 ```
 
 ## Recent commits
 
 ```
+7e5ed39 T-036: Log which continuity rule fired in the live demo
 2bfc686 T-035: Reduce owner false-reject on real mic audio
 dd02e97 T-034: Make the AS-norm cohort file portable across machines
 f84d8cc T-033: Add sounddevice as a dependency and fix demo docs
@@ -54,5 +55,4 @@ f84d8cc T-033: Add sounddevice as a dependency and fix demo docs
 86e4bbc T-031: Rework continuity check: longer windows / softer rule to cut owner false-reject
 805c435 T-030: Speed up pipeline bench enrollment and trim smoke total
 c13c64e wip(T-029): blocked, awaiting human
-4b1105c T-028: Calibrate speaker-continuity window parameters on bench audio
 ```
