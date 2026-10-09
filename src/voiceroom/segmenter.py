@@ -29,6 +29,7 @@ class TurnEnd:
     t_end: float  # end of last speech frame
     split: bool = False  # True if cut by max_turn_s; speech continues in the next turn
     tail_samples: int = 0  # trailing non-speech samples at the end of `audio`
+    voiced: np.ndarray | None = None  # per-frame VAD speech flags for `audio`
 
 
 Event = SpeechStart | IdentifyReady | TurnEnd
@@ -65,6 +66,7 @@ class Segmenter:
     def reset(self) -> None:
         self._preroll.clear()
         self._frames: list[np.ndarray] = []  # active turn, incl. pre-roll
+        self._flags: list[bool] = []  # VAD speech flag per frame in _frames
         self._active = False
         self._run = 0  # consecutive speech frames while idle
         self._silence = 0  # trailing non-speech frames while active
@@ -89,6 +91,7 @@ class Segmenter:
                 self._begin(i - self._run + 1, out)
             return out
         self._frames.append(frame)
+        self._flags.append(speech)
         self._speech += 1
         if speech:
             self._silence = 0
@@ -107,6 +110,18 @@ class Segmenter:
                 self._run = self.start_frames - 1
         return out
 
+    @property
+    def active_frames(self) -> int:
+        """Frames (incl. pre-roll) of the open turn; 0 when idle."""
+        return len(self._frames) if self._active else 0
+
+    def turn_audio(self) -> np.ndarray:
+        """Audio of the open turn so far (same alignment as the eventual TurnEnd.audio)."""
+        return np.concatenate(self._frames)
+
+    def turn_voiced(self) -> np.ndarray:
+        return np.array(self._flags, dtype=bool)
+
     def flush(self) -> list[Event]:
         """End of stream: close any open turn."""
         out = [self._end(split=False)] if self._active else []
@@ -116,6 +131,7 @@ class Segmenter:
     def _begin(self, start_idx: int, out: list[Event]) -> None:
         self._active = True
         self._frames = list(self._preroll)
+        self._flags = [False] * (len(self._frames) - self._run) + [True] * self._run
         self._preroll.clear()
         self._start_idx = start_idx
         self._last_speech_idx = self._idx - 1
@@ -134,10 +150,16 @@ class Segmenter:
         audio = np.concatenate(self._frames[:n])
         tail = max(0, first + n - (self._last_speech_idx + 1)) * FRAME_SIZE
         ev = TurnEnd(
-            audio, self._start_idx * FRAME_S, (self._last_speech_idx + 1) * FRAME_S, split, tail
+            audio,
+            self._start_idx * FRAME_S,
+            (self._last_speech_idx + 1) * FRAME_S,
+            split,
+            tail,
+            np.array(self._flags[:n], dtype=bool),
         )
         self._active = False
         self._frames = []
+        self._flags = []
         self._silence = self._speech = self._voiced = 0
         return ev
 

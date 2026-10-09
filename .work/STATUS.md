@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 22:07
-Phase: build · unit tests off · 16/26 done · est. API-equivalent cost $18.54
+Voice Room · 2026-10-08 23:20
+Phase: build · unit tests off · 17/27 done · est. API-equivalent cost $21.45
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -18,8 +18,7 @@ Phase: build · unit tests off · 16/26 done · est. API-equivalent cost $18.54
 ✅ T-013 Add streaming VAD with Silero ONNX and energy fallback
 ✅ T-014 Implement segmenter with turn endpointing and early decision hooks
 ✅ T-015 Define provider adapter interface and MockProvider
-⛔ T-016 Build streaming pipeline with isolation policy
-     ❓ Couldn't converge after 3 fix rounds. How should I proceed? (e.g. 'skip', a hint, or a scope change)
+🔨 T-016 Build streaming pipeline with isolation policy
 ⬜ T-017 Add collaboration mode with speaker attribution
 ⬜ T-018 Measure pipeline latency and isolation accuracy on real components
 ✅ T-019 Implement OpenAI Realtime adapter against a local fake server
@@ -27,14 +26,16 @@ Phase: build · unit tests off · 16/26 done · est. API-equivalent cost $18.54
 ⬜ T-021 Add voiceroom CLI for enroll, list, delete, and demo
 ⬜ T-022 Support barge-in: stop playback when accepted speaker talks
 ⬜ T-023 Write macOS demo checklist and request human live test
-🔨 T-024 Improve noisy and short-utterance accuracy
+✅ T-024 Improve noisy and short-utterance accuracy
 ⬜ T-025 Reduce p95 embedding latency
 ⬜ T-026 Evaluate CAM++ as an embedder candidate
+⬜ T-027 Ship AS-norm cohort and decide noise-aug enrollment defaults
 ```
 
 ## Recent commits
 
 ```
+0c61345 T-024: Improve noisy and short-utterance accuracy
 21d449e T-019: Implement OpenAI Realtime adapter against a local fake server
 061da49 wip(T-016): blocked, did not converge
 2d37406 T-015: Define provider adapter interface and MockProvider
@@ -44,5 +45,4 @@ a9735c7 T-012: Choose embedder and threshold from bench results
 3f0b28f T-011: Wire make bench to LibriSpeech for all embedders
 5d2dc83 T-010: Implement bench metrics, trials, and report writer
 ce62fbb T-009: Add optional SpeechBrain ECAPA embedder
-fe3536a T-008: Build synthetic conversations with ground-truth segments
 ```

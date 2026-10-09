@@ -1,10 +1,13 @@
 """Streaming pipeline: frames -> VAD -> segmenter -> identify -> policy -> provider."""
 
 import asyncio
+import functools
 import logging
 import multiprocessing as mp
+import pickle
 import threading
 import time
+from collections import deque
 from collections.abc import AsyncIterable, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -12,20 +15,22 @@ from dataclasses import dataclass
 import numpy as np
 
 from .adapters.base import Provider
-from .config import MIN_DECISION_S
 from .matcher import Match, Matcher
 from .policy import Decision, IsolationPolicy, Verdict
 from .segmenter import IdentifyReady, Segmenter, SpeechStart, TurnEnd
-from .vad import VAD
+from .vad import FRAME_SIZE, VAD
 
 log = logging.getLogger(__name__)
 
+MAX_RECORDS = 1000  # retained TurnRecords (oldest dropped); use on_record to keep them all
 MAX_PENDING_TURNS = 4  # turns waiting for identify/commit; further turns are dropped
 SEND_TIMEOUT_S = 5.0  # a provider send slower than this drops the turn
-REMAINDER_MIN_S = 0.3  # audio after the early check that can be verified on its own
-REMAINDER_SLACK_S = 0.032  # one frame of speech past the early check is tolerated
 IDENTIFY_TIMEOUT_S = 5.0  # an identification slower than this drops the turn
 MAX_INFLIGHT_IDENTIFY = 6  # submitted-but-unfinished identifications (running or queued)
+START_TIMEOUT_S = 60.0  # identification child start-up (imports, model load)
+WIN_FRAMES = 16  # continuity windows: 16 frames (~0.5 s) every 8 frames (~0.25 s)
+HOP_FRAMES = 8
+MIN_VOICED = 0.5  # windows with less speech than this are not scored (pauses)
 
 
 @dataclass(frozen=True)
@@ -59,19 +64,43 @@ class Pipeline:
         identify_timeout_s: float = IDENTIFY_TIMEOUT_S,
         max_inflight_identify: int = MAX_INFLIGHT_IDENTIFY,
         matcher_factory: Callable[[], Matcher] | None = None,
+        isolation: str = "process",
+        start_timeout_s: float = START_TIMEOUT_S,
+        on_record: Callable[[TurnRecord], None] | None = None,
+        max_records: int = MAX_RECORDS,
     ):
-        """`matcher_factory` (picklable, module-level) runs identification in a child process
-        that is killed on timeout, so a hung backend can neither leak audio nor block exit.
-        Without it identification runs on a thread, which a hang cannot be killed from."""
-        self.matcher_factory = matcher_factory
+        """Identification runs in a child process that is killed on timeout (`isolation=
+        "process"`, the default), so a hung backend can neither retain audio nor block exit.
+        The child builds its matcher from `matcher_factory` (picklable, module-level) or, if
+        none is given, from a pickled copy of `matcher` (which must then be picklable; ONNX
+        sessions usually are not, so live setups pass a factory). `isolation="thread"` runs it
+        on a thread instead: a hung backend cannot be killed there (offline smoke use)."""
+        if isolation not in ("process", "thread"):
+            raise ValueError("isolation must be 'process' or 'thread'")
+        self.isolation, self.matcher_factory = isolation, matcher_factory
+        if isolation == "process" and matcher_factory is None:
+            try:
+                pickle.dumps(matcher)
+            except Exception as exc:
+                raise ValueError(
+                    "matcher is not picklable: pass matcher_factory= or isolation='thread'"
+                ) from exc
         self.max_pending, self.send_timeout_s = max_pending, send_timeout_s
         self.identify_timeout_s, self.max_inflight = identify_timeout_s, max_inflight_identify
+        self.start_timeout_s = start_timeout_s
         self._inflight = 0
         self._lock = threading.Lock()
         self.peak_inflight = 0
         self.vad, self.segmenter, self.matcher = vad, segmenter, matcher
         self.policy, self.provider = policy, provider
-        self.records: list[TurnRecord] = []
+        self.on_record = on_record
+        self.records: deque[TurnRecord] = deque(maxlen=max_records)  # most recent run/turns
+
+    def _make_identifier(self) -> "_Identifier":
+        if self.isolation == "thread":
+            return _ThreadIdentifier(self.matcher, self.max_inflight)
+        factory = self.matcher_factory or functools.partial(_return, self.matcher)
+        return _ProcIdentifier(factory, self.start_timeout_s)
 
     async def run(self, frame_source: AsyncIterable[np.ndarray] | Iterable[np.ndarray]) -> None:
         """Consume 512-sample frames until the source ends; commits accepted turns.
@@ -81,57 +110,82 @@ class Pipeline:
         """
         self.vad.reset()
         self.segmenter.reset()
-        self._ident: _Identifier = (
-            _ProcIdentifier(self.matcher_factory)
-            if self.matcher_factory
-            else _ThreadIdentifier(self.matcher, self.max_inflight)
-        )
+        self._ident = self._make_identifier()
+        self.records.clear()
         self._inflight = 0
         await self.provider.connect()
         early: asyncio.Task[Match] | None = None
+        wins: dict[
+            int, asyncio.Task[Match] | None
+        ] = {}  # window start frame -> score (None: pause)
         early_len = 0
         queue: asyncio.Queue[tuple | None] = asyncio.Queue(self.max_pending)
         worker = asyncio.create_task(self._worker(queue))
         stream_t = 0.0  # stream time of the next frame's start
 
+        def cancel_all() -> None:
+            nonlocal early
+            if early is not None:
+                early.cancel()
+            for t in wins.values():
+                if t is not None:
+                    t.cancel()
+            early = None
+            wins.clear()
+
+        def has_room() -> bool:
+            return queue.qsize() < self.max_pending and self._inflight < self.max_inflight - 2
+
         def handle(events: list, now: float) -> None:
             nonlocal early, early_len
             for ev in events:
                 if isinstance(ev, SpeechStart):
-                    early = None
+                    cancel_all()
                 elif isinstance(ev, IdentifyReady):
                     early_len = len(ev.audio)
-                    early = None
-                    if queue.qsize() < self.max_pending:  # else the turn will overflow anyway
-                        early = asyncio.create_task(self._identify(ev.audio))
+                    if has_room():  # else the turn is decided at TurnEnd
+                        early = self._spawn(ev.audio)
                 elif isinstance(ev, TurnEnd):
                     try:
-                        queue.put_nowait((ev, early, early_len, now, time.perf_counter()))
+                        queue.put_nowait(
+                            (ev, early, early_len, dict(wins), now, time.perf_counter())
+                        )
+                        early = None
+                        wins.clear()
                     except asyncio.QueueFull:  # never block frame ingestion
-                        if early is not None:
-                            early.cancel()
+                        cancel_all()
                         self._record_error(ev, "overflow", now, time.perf_counter())
-                    early = None
 
         try:
             async for frame in _aiter(frame_source):
                 prob = self.vad.process(frame)
                 stream_t += len(frame) / 16000
                 handle(self.segmenter.process(frame, prob), stream_t)
+                # Score each ~0.5 s window of the open turn as soon as it is complete, so the
+                # speaker-continuity check costs little at TurnEnd.
+                n = self.segmenter.active_frames
+                nxt = (max(wins) + HOP_FRAMES) if wins else 0
+                if n >= nxt + WIN_FRAMES and has_room():
+                    audio, voiced = self.segmenter.turn_audio(), self.segmenter.turn_voiced()
+                    while n >= nxt + WIN_FRAMES:
+                        if voiced[nxt : nxt + WIN_FRAMES].mean() >= MIN_VOICED:
+                            wins[nxt] = self._spawn(_window(audio, voiced, nxt, WIN_FRAMES))
+                        else:
+                            wins[nxt] = None
+                        nxt += HOP_FRAMES
                 await asyncio.sleep(0)  # let the worker run
             handle(self.segmenter.flush(), stream_t)
             await queue.put(None)  # bounded: waits only for in-flight turns (sends time out)
             await worker
         finally:
             worker.cancel()
-            if early is not None:
-                early.cancel()
+            cancel_all()
             self._ident.close()
             await self.provider.close()
 
     async def _worker(self, queue: "asyncio.Queue[tuple | None]") -> None:
         while (item := await queue.get()) is not None:
-            ev, now, t0 = item[0], item[3], item[4]
+            ev, now, t0 = item[0], item[4], item[5]
             try:
                 await self._finish(*item)
             except Exception as exc:
@@ -139,9 +193,21 @@ class Pipeline:
                 code = getattr(exc, "code", "turn_error")
                 log.warning("turn dropped: %s", code)
                 self._record_error(ev, code, now, t0)
+            finally:
+                for t in item[3].values():
+                    if t is not None:
+                        t.cancel()
+
+    def _emit(self, rec: "TurnRecord") -> None:
+        self.records.append(rec)
+        if self.on_record is not None:
+            try:
+                self.on_record(rec)
+            except Exception:
+                log.warning("on_record callback failed")
 
     def _record_error(self, ev: TurnEnd, code: str, now: float, t0: float) -> None:
-        self.records.append(
+        self._emit(
             TurnRecord(
                 ev.t_start,
                 ev.t_end,
@@ -155,8 +221,13 @@ class Pipeline:
             )
         )
 
+    def _spawn(self, audio: np.ndarray) -> "asyncio.Task[Match]":
+        t = asyncio.create_task(self._identify(audio))
+        t.add_done_callback(lambda t: t.cancelled() or t.exception())  # mark retrieved
+        return t
+
     async def _identify(self, audio: np.ndarray) -> Match:
-        """Run the matcher on the single identification thread, bounded in count and time."""
+        """Run the matcher on the identification worker, bounded in count and time."""
         with self._lock:
             if self._inflight >= self.max_inflight:
                 raise _StageError("identify_busy")
@@ -173,21 +244,43 @@ class Pipeline:
             with self._lock:
                 self._inflight -= 1
 
-    async def _continuous(self, audio: np.ndarray, start: int) -> bool:
-        """True if every 1 s window of audio[start:] (and the end of the turn) is the owner."""
-        for w in _windows(audio, start):
-            if (
-                self.policy.decide(await self._identify(w), final=True).verdict
-                is not Verdict.ACCEPT
-            ):
-                return False
-        return True
+    async def _continuity_ok(
+        self, ev: TurnEnd, wins: "dict[int, asyncio.Task[Match] | None]"
+    ) -> bool:
+        """Score every voiced ~0.5 s window of the turn's speech (plus one anchored at the end)
+        and require them to be homogeneous owner speech. Reuses windows scored while the turn
+        was running; computes the rest here."""
+        n = (len(ev.audio) - ev.tail_samples) // FRAME_SIZE  # frames up to the end of speech
+        voiced = ev.voiced if ev.voiced is not None else np.ones(len(ev.audio) // FRAME_SIZE, bool)
+        starts = list(range(0, n - WIN_FRAMES + 1, HOP_FRAMES))
+        if n >= WIN_FRAMES and n - WIN_FRAMES not in starts:
+            starts.append(n - WIN_FRAMES)
+        if n < WIN_FRAMES:
+            starts, width = [0], n
+        else:
+            width = WIN_FRAMES
+        matches = []
+        for st in starts:
+            if width <= 0 or voiced[st : st + width].mean() < MIN_VOICED:
+                continue
+            t = wins.get(st)
+            m = None
+            if t is not None:
+                try:
+                    m = await t
+                except Exception:  # best-effort early scoring: recompute below
+                    m = None
+            if m is None:
+                m = await self._identify(_window(ev.audio, voiced, st, width))
+            matches.append(m)
+        return self.policy.windows_ok(matches)
 
     async def _finish(
         self,
         ev: TurnEnd,
         early: "asyncio.Task[Match] | None",
         early_len: int,
+        wins: "dict[int, asyncio.Task[Match] | None]",
         now: float,
         t0: float,
     ) -> None:
@@ -202,23 +295,12 @@ class Pipeline:
         if match is not None:
             decision = self.policy.decide(match, final=False)
             was_early = decision.verdict is not Verdict.UNDECIDED
-        if was_early and decision.verdict is Verdict.ACCEPT:
-            # Audio after the early check must be verified (see _tail_checkable).
-            extra = len(ev.audio) - ev.tail_samples - early_len  # speech only, no tail silence
-            if extra > REMAINDER_SLACK_S * 16000 and not (
-                _tail_checkable(extra) and await self._continuous(ev.audio, early_len)
-            ):
-                was_early = False
-                decision = Decision(Verdict.REJECT)
         if decision is None or decision.verdict is Verdict.UNDECIDED:
             match = await self._identify(ev.audio)
             decision = self.policy.decide(match, final=True)
-            if decision.verdict is Verdict.ACCEPT and not (
-                _tail_checkable(int((ev.t_end - ev.t_start - MIN_DECISION_S) * 16000))
-                and await self._continuous(ev.audio, 0)
-            ):
-                decision = Decision(Verdict.REJECT)  # speaker change inside the turn
-        assert match is not None
+        assert match is not None and decision is not None
+        if decision.verdict is Verdict.ACCEPT and not await self._continuity_ok(ev, wins):
+            decision, was_early = Decision(Verdict.REJECT), False  # speaker change inside the turn
         if decision.verdict is Verdict.ACCEPT:
             try:
                 await asyncio.wait_for(
@@ -229,7 +311,7 @@ class Pipeline:
             except Exception as exc:
                 raise _StageError("send_error") from exc
         compute_s = time.perf_counter() - t0
-        self.records.append(
+        self._emit(
             TurnRecord(
                 ev.t_start,
                 ev.t_end,
@@ -249,24 +331,6 @@ class _StageError(Exception):
         self.code = code
 
 
-def _tail_checkable(extra: int) -> bool:
-    """`extra` samples of speech past the first MIN_DECISION_S (beyond tail silence) must be
-    long enough to embed on their own; a shorter continuation cannot be told apart from a
-    speaker change, so the turn is dropped."""
-    return extra <= REMAINDER_SLACK_S * 16000 or extra >= REMAINDER_MIN_S * 16000
-
-
-def _windows(audio: np.ndarray, start: int) -> list[np.ndarray]:
-    """1 s windows over audio[start:], plus one anchored at the very end (catches short tails)."""
-    n = int(MIN_DECISION_S * 16000)
-    out = [audio[i : i + n] for i in range(start, len(audio) - n + 1, n)]
-    if len(audio) >= n:
-        out.append(audio[-n:])
-    elif len(audio) > start:
-        out.append(audio[start:])
-    return out
-
-
 async def _aiter(src):
     if hasattr(src, "__aiter__"):
         async for x in src:
@@ -274,6 +338,16 @@ async def _aiter(src):
     else:
         for x in src:
             yield x
+
+
+def _window(audio: np.ndarray, voiced: np.ndarray, start: int, width: int) -> np.ndarray:
+    """Speech frames only of frames [start, start+width): pauses would skew the embedding."""
+    frames = audio[start * FRAME_SIZE : (start + width) * FRAME_SIZE].reshape(-1, FRAME_SIZE)
+    return frames[voiced[start : start + width][: len(frames)]].reshape(-1)
+
+
+def _return(obj):
+    return obj
 
 
 class _Identifier:
@@ -306,9 +380,6 @@ class _ThreadIdentifier(_Identifier):
         self._ex.shutdown(wait=False, cancel_futures=True)
 
 
-START_TIMEOUT_S = 60.0  # child process start-up (imports, model load)
-
-
 def _serve(factory: Callable[[], Matcher], conn) -> None:
     """Child process: build the matcher, then answer one audio array at a time."""
     try:
@@ -325,13 +396,20 @@ def _serve(factory: Callable[[], Matcher], conn) -> None:
 
 
 class _ProcIdentifier(_Identifier):
-    """Matcher in a spawned child process; a timeout kills the child (respawned on demand)."""
+    """Matcher in a spawned child process; a timeout kills the child (respawned on demand).
 
-    def __init__(self, factory: Callable[[], Matcher]):
-        self._factory = factory
+    One deadline covers the whole request (send + compute + reply). Sending runs on a helper
+    thread because a child that stops reading would block a large pipe write; killing the child
+    makes that write fail, so no thread outlives it.
+    """
+
+    def __init__(self, factory: Callable[[], Matcher], start_timeout_s: float):
+        self._factory, self._start_timeout = factory, start_timeout_s
         self._proc = None
         self._conn = None
         self._lock = asyncio.Lock()
+        self._io = ThreadPoolExecutor(1, thread_name_prefix="voiceroom-pipe")
+        self.kills = 0
 
     async def _recv(self, timeout: float):
         loop = asyncio.get_running_loop()
@@ -339,13 +417,15 @@ class _ProcIdentifier(_Identifier):
         fut: asyncio.Future[None] = loop.create_future()
         loop.add_reader(conn.fileno(), lambda: fut.done() or fut.set_result(None))
         try:
-            await asyncio.wait_for(fut, timeout)
+            await asyncio.wait_for(fut, max(0.0, timeout))
         finally:
             loop.remove_reader(conn.fileno())
-        return conn.recv()
+        return conn.recv()  # replies are tiny; the child has already written one
 
     async def identify(self, audio: np.ndarray, timeout: float) -> Match:
+        loop = asyncio.get_running_loop()
         async with self._lock:
+            deadline = loop.time() + timeout
             try:
                 if self._proc is None:
                     ctx = mp.get_context("spawn")
@@ -355,10 +435,12 @@ class _ProcIdentifier(_Identifier):
                     )
                     self._proc.start()
                     child.close()
-                    if await self._recv(START_TIMEOUT_S) != "ready":
+                    if await self._recv(self._start_timeout) != "ready":
                         raise RuntimeError("matcher child failed to start")
-                self._conn.send(audio)
-                out = await self._recv(timeout)
+                    deadline = loop.time() + timeout  # start-up has its own budget
+                send = loop.run_in_executor(self._io, self._conn.send, audio)
+                await asyncio.wait_for(send, max(0.0, deadline - loop.time()))
+                out = await self._recv(deadline - loop.time())
             except BaseException:
                 self._kill()  # hung, crashed, or cancelled: never reuse a child mid-request
                 raise
@@ -366,13 +448,15 @@ class _ProcIdentifier(_Identifier):
                 raise RuntimeError("identify failed in child")
             return out
 
-    def _kill(self) -> None:
+    def _kill(self, count: bool = True) -> None:
         if self._proc is not None:
-            self._proc.kill()
+            self.kills += count
+            self._proc.kill()  # first: this also fails any pipe write blocked in the I/O thread
             self._proc.join(timeout=5)
         if self._conn is not None:
             self._conn.close()
         self._proc = self._conn = None
 
     def close(self) -> None:
-        self._kill()
+        self._kill(count=False)  # an orderly close is not a timeout kill
+        self._io.shutdown(wait=False, cancel_futures=True)

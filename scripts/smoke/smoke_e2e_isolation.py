@@ -32,6 +32,7 @@ for s in spks:
         sc = cal.identify_embedding(emb.embed(u.load()[:16000])).scores
         gen.append(sc[s])
         imp += [v for k, v in sc.items() if k != s]
+# Toy owner windows vary by <= 0.01; a >= 0.15 s speaker change dips them by >= 0.014.
 threshold = (float(np.percentile(gen, 5)) + float(np.percentile(imp, 95))) / 2
 print(
     f"threshold={threshold:.3f} genuine p5={np.percentile(gen, 5):.3f} "
@@ -49,9 +50,12 @@ for seed in (11, 12, 13):
         EnergyVAD(),
         Segmenter(),
         Matcher(sigs, threshold=threshold, embedder=emb),
-        IsolationPolicy(owner, threshold, early_score_buffer=0.02, early_margin=0.02),
+        IsolationPolicy(
+            owner, threshold, early_score_buffer=0.02, early_margin=0.02, embedder="toy"
+        ),
         provider,
         max_pending=1000,
+        isolation="thread",
     )
     asyncio.run(pipe.run(iter_frames(conv.audio, FRAME_SIZE)))
     assert len(pipe.records) == len(provider.turns) + sum(
@@ -77,9 +81,10 @@ late = Pipeline(
     EnergyVAD(),
     Segmenter(identify_after_s=1e3),
     Matcher(sigs, threshold=threshold, embedder=emb),
-    IsolationPolicy(owner, threshold),
+    IsolationPolicy(owner, threshold, embedder="toy"),
     MockProvider(),
     max_pending=1000,
+    isolation="thread",
 )
 asyncio.run(late.run(iter_frames(conv.audio, FRAME_SIZE)))
 assert late.records and not any(r.early for r in late.records)
@@ -93,9 +98,13 @@ def make_pipe(provider, segmenter=None, **kw):
         EnergyVAD(),
         segmenter or Segmenter(),
         Matcher(sigs, threshold=threshold, embedder=emb),
-        IsolationPolicy(owner, threshold, early_score_buffer=0.02, early_margin=0.02),
+        IsolationPolicy(
+            owner, threshold, early_score_buffer=0.02, early_margin=0.02, embedder="toy"
+        ),
         provider,
-        **({"max_pending": 1000} | kw),  # offline source is faster than real time
+        **(
+            {"max_pending": 1000, "isolation": "thread"} | kw
+        ),  # offline source is faster than real time
     )
 
 
@@ -146,25 +155,56 @@ assert sum(r.verdict is Verdict.ACCEPT for r in fl.records) == len(fl.provider.t
 
 # Stalled provider with a bounded queue: sends time out, excess turns are dropped, every turn
 # is accounted for, and the run still ends.
-slow = make_pipe(FlakyProvider(stall_s=5.0, fail_first=False), max_pending=1, send_timeout_s=0.05)
-asyncio.run(slow.run(iter_frames(twice, FRAME_SIZE)))
-assert len(slow.records) == 2 * n_turns, (len(slow.records), n_turns)
+# Deterministic: the stream starts with an owner turn (so the worker really enters the stalled
+# send), and the timeout (1 s) far exceeds the time needed to feed the rest of the audio.
+slow_audio = np.concatenate([seg_audio(True), gap, twice])
+slow = make_pipe(FlakyProvider(stall_s=30.0, fail_first=False), max_pending=1, send_timeout_s=1.0)
+asyncio.run(slow.run(iter_frames(slow_audio, FRAME_SIZE)))
+assert len(slow.records) == 2 * n_turns + 1, (len(slow.records), n_turns)
 codes = {r.error for r in slow.records if r.error}
 assert {"send_timeout", "overflow"} <= codes, codes
 assert not slow.provider.turns
 
 # Short continuation (0.16 s) after the early check, and the no-early fallback path with the
 # policy's default (wide) buffers: neither may forward the non-owner audio.
-for kw in ({"early_score_buffer": 0.02, "early_margin": 0.02}, {}):
-    for suffix_s, tail in ((0.16, gap), (0.5, gap), (0.064, None), (0.096, None), (0.128, None)):
+for kw in (
+    {"early_score_buffer": 0.02, "early_margin": 0.02},
+    {},
+):
+    for suffix_s, tail in ((0.16, gap), (0.5, gap), (0.16, None), (0.256, None)):
         parts = [seg_audio(True, 1.024), seg_audio(False, suffix_s)]  # tail None = ends at EOF
         mixed = np.concatenate(parts + ([tail] if tail is not None else []))
         pl = make_pipe(MockProvider())
-        pl.policy = IsolationPolicy(owner, threshold, **kw)
+        pl.policy = IsolationPolicy(owner, threshold, embedder="toy", **kw)
         asyncio.run(pl.run(iter_frames(mixed, FRAME_SIZE)))
         assert len(pl.records) == 1 and pl.records[0].verdict is Verdict.REJECT, pl.records
         assert not pl.provider.turns, (kw, suffix_s)
 assert not make_pipe(MockProvider()).policy.early_score_buffer > 0.1  # smoke buffers are narrow
+
+
+# Interior interjection: non-owner speech inside an owner turn (no pauses) must not be forwarded
+# (0.256 s and 0.16 s), while owner-only turns of 1.0-1.5 s are all committed.
+o_ = seg_audio(True)
+cut = int(1.536 * 16000)
+for inter_s in (0.256, 0.16):
+    inter = np.concatenate([o_[:cut], seg_audio(False, inter_s), o_[cut : cut + cut], gap])
+    pl = make_pipe(MockProvider())
+    asyncio.run(pl.run(iter_frames(inter, FRAME_SIZE)))
+    assert len(pl.records) == 1 and pl.records[0].verdict is Verdict.REJECT, (inter_s, pl.records)
+    assert not pl.provider.turns
+for dur in (1.0, 1.12, 1.2, 1.28, 1.5):
+    pl = make_pipe(MockProvider())
+    asyncio.run(pl.run(iter_frames(np.concatenate([o_[: int(dur * 16000)], gap]), FRAME_SIZE)))
+    assert len(pl.records) == 1 and pl.records[0].verdict is Verdict.ACCEPT, (dur, pl.records)
+
+
+# Retained history is bounded; on_record sees every turn.
+seen = []
+rb = make_pipe(MockProvider(), max_records=3, on_record=seen.append)
+asyncio.run(rb.run(iter_frames(conv.audio, FRAME_SIZE)))
+assert len(rb.records) == 3 and len(seen) == n_turns and list(rb.records) == seen[-3:]
+asyncio.run(rb.run(iter_frames(gap, FRAME_SIZE)))
+assert len(rb.records) == 0  # records are per run
 
 
 # Blocked matcher: identification work stays bounded, run ends, every turn is accounted for.

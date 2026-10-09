@@ -81,7 +81,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/adapters/base.py` (`Provider`: `connect()`, `send_turn(audio16k, speaker_label|None)`, `interrupt()`, `audio_out` async iterator or callback, `close()`, with provider-agnostic types only) and `voiceroom/adapters/mock.py` (records turns, labels, and timestamps, and emits a short synthetic reply per turn); `scripts/smoke/smoke_mock_provider.py` sends 3 turns and checks the recorded order, labels, reply audio, and interrupt; a grep check in the smoke script asserts no provider-specific imports outside `adapters/`; `make check` green.
   depends: T-001
 
-- [ ] T-016 | M1 | Build streaming pipeline with isolation policy
+- [x] T-016 | M1 | Build streaming pipeline with isolation policy
   goal: Wire frames → VAD → segmenter → identify (early decision when confident) → isolation policy → provider, and measure end-of-speech → commit latency.
   accept: `voiceroom/policy.py` (`IsolationPolicy(owner)`) and `voiceroom/pipeline.py` (async `Pipeline(vad, segmenter, matcher, policy, provider).run(frame_source)`; decides early on `IdentifyReady` when score/margin is confident, otherwise at `TurnEnd`; drops rejected audio without forwarding it; records per-turn decision and latency); `scripts/smoke/smoke_e2e_isolation.py` runs 3 synthetic conversations (owner plus 2 others, toy embedder, EnergyVAD, MockProvider) and asserts zero non-owner turns committed, ≥ 90 % owner turns committed, and prints latency p50/p95; `make check` green.
   depends: T-004, T-014, T-015
@@ -140,3 +140,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: D-011 variants are config-only; add a cohort file loader (data/, no audio) and set defaults after live-audio check (T-023).
   accept: pipeline uses cohort when present, with threshold stored alongside the cohort and IsolationPolicy early buffers rescaled to the AS-norm scale; bench shows no clean regression; D-0xx updated.
   depends: T-024
+- [ ] T-028 | M1 | Calibrate speaker-continuity window parameters on bench audio
+  goal: The pipeline's ~0.5 s window continuity check (`IsolationPolicy.windows_ok`; `WINDOW_DROPS`, `window_buffer`) uses provisional values for wespeaker/ecapa. Calibrate on LibriSpeech conversations with mid-turn speaker changes.
+  accept: bench or script reports interior-interjection leak rate vs owner false-reject (turns >= 1 s) for wespeaker at candidate `window_drop` values; config values set from it and recorded in decisions.md; `make check` green.
+  depends: T-016
