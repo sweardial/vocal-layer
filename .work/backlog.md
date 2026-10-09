@@ -195,7 +195,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: `scripts/smoke/run_all.py` prints a per-script time table sorted by duration. The slowest smokes are trimmed (fewer conversations, cached signatures, shared temp assets) or run concurrently via a `-j` option the Makefile uses. With real models and data present in the container, `make smoke` total is ≤ 35 s, recorded in summary.md as the median of 3 runs. No smoke loses its key assertion; each trimmed check is listed in the summary. `make check` green.
   depends: none
 
-- [ ] T-038 | M3 | Extract a per-source turn processor from Pipeline
+- [x] T-038 | M3 | Extract a per-source turn processor from Pipeline
   goal: Split `Pipeline` into a reusable per-source `SourceProcessor` (VAD → segmenter → identify → policy decision → TurnRecord) and the single-source wrapper, without behavior change, so a room can run one processor per track.
   accept: `voiceroom/pipeline.py` (or a new `voiceroom/source.py`) exposes `SourceProcessor(source_id, vad, segmenter, matcher, policy)` yielding decided turns (audio, label, decision, timings) without touching the provider. The existing `Pipeline.run` uses it and keeps its public signature. All existing smokes are unchanged and green. `python -m voiceroom.bench.pipeline` on the same seed reproduces owner FR, non-owner FA, attribution and commit p95 within ±1 turn / ±30 ms of `reports/pipeline-wespeaker-resnet34.md` (numbers in summary.md). `make check` green.
   depends: T-036

@@ -8,7 +8,7 @@ import pickle
 import threading
 import time
 from collections import deque
-from collections.abc import AsyncIterable, Callable, Iterable
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
@@ -65,6 +65,213 @@ class TurnRecord:
         return self.endpoint_s + self.compute_s
 
 
+@dataclass
+class PendingTurn:
+    """An ended turn awaiting its decision, with the identification tasks started for it."""
+
+    ev: TurnEnd
+    early: "asyncio.Task[Match] | None"
+    early_len: int
+    wins: "dict[int, asyncio.Task[Match] | None]"
+    now: float  # stream time at TurnEnd
+    t0: float  # perf_counter at TurnEnd
+
+    def cancel(self) -> None:
+        if self.early is not None:
+            self.early.cancel()
+        for t in self.wins.values():
+            if t is not None:
+                t.cancel()
+
+
+@dataclass(frozen=True)
+class DecidedTurn:
+    source_id: str
+    audio: np.ndarray
+    label: str | None
+    decision: Decision
+    match: Match
+    early: bool  # decided on partial audio, before the turn ended
+    t_start: float
+    t_end: float
+    endpoint_s: float  # end of speech -> TurnEnd emitted (stream time)
+
+
+class SourceProcessor:
+    """One audio source: frames -> VAD -> segmenter -> identify -> policy -> decided turns.
+
+    Never touches the provider. The owner supplies `identify` (async, bounded, may raise) and
+    `has_room` via `bind`, feeds frames to `push`/`flush`, and calls `decide` on each pending turn.
+    """
+
+    def __init__(
+        self,
+        source_id: str,
+        vad: VAD,
+        segmenter: Segmenter,
+        matcher: Matcher,
+        policy: IsolationPolicy | CollaborationPolicy,
+    ):
+        self.source_id, self.vad, self.segmenter = source_id, vad, segmenter
+        self.matcher, self.policy = matcher, policy
+        policy.bind_matcher(matcher)
+        self._identify_fn: Callable[[np.ndarray], Awaitable[Match]] = _unbound
+        self._has_room: Callable[[], bool] = lambda: True
+        self._on_early_accept: Callable[[], None] | None = None
+        self._clear()
+
+    def bind(
+        self,
+        identify: Callable[[np.ndarray], Awaitable[Match]],
+        has_room: Callable[[], bool],
+        on_early_accept: Callable[[], None] | None = None,
+    ) -> None:
+        self._identify_fn, self._has_room = identify, has_room
+        self._on_early_accept = on_early_accept
+
+    def _clear(self) -> None:
+        self._early: asyncio.Task[Match] | None = None
+        self._wins: dict[int, asyncio.Task[Match] | None] = {}  # window start -> score
+        self._early_len = 0
+        self._stream_t = 0.0  # stream time of the next frame's start
+
+    def reset(self) -> None:
+        self.vad.reset()
+        self.segmenter.reset()
+        self.close()
+
+    def close(self) -> None:
+        """Cancel identification tasks of the open turn."""
+        if self._early is not None:
+            self._early.cancel()
+        for t in self._wins.values():
+            if t is not None:
+                t.cancel()
+        self._clear()
+
+    def _spawn(self, audio: np.ndarray) -> "asyncio.Task[Match]":
+        t = asyncio.create_task(self._identify_fn(audio))
+        t.add_done_callback(lambda t: t.cancelled() or t.exception())  # mark retrieved
+        return t
+
+    def _on_early(self, task: "asyncio.Task[Match]") -> None:
+        if task.cancelled() or task.exception() is not None or self._on_early_accept is None:
+            return
+        if self.policy.decide(task.result(), final=False).verdict is Verdict.ACCEPT:
+            self._on_early_accept()
+
+    def _handle(self, events: list, now: float) -> list[PendingTurn]:
+        out = []
+        for ev in events:
+            if isinstance(ev, SpeechStart):
+                self.close_open()
+            elif isinstance(ev, IdentifyReady):
+                self._early_len = len(ev.audio)
+                if self._has_room():  # else the turn is decided at TurnEnd
+                    self._early = self._spawn(ev.audio)
+                    self._early.add_done_callback(self._on_early)
+            elif isinstance(ev, TurnEnd):
+                out.append(
+                    PendingTurn(
+                        ev, self._early, self._early_len, dict(self._wins), now, time.perf_counter()
+                    )
+                )
+                self._early = None
+                self._wins.clear()
+        return out
+
+    def close_open(self) -> None:
+        t = self._stream_t
+        self.close()
+        self._stream_t = t
+
+    def push(self, frame: np.ndarray) -> list[PendingTurn]:
+        """Process one 512-sample frame; returns turns that ended on it."""
+        prob = self.vad.process(frame)
+        self._stream_t += len(frame) / 16000
+        out = self._handle(self.segmenter.process(frame, prob), self._stream_t)
+        # Score each ~0.5 s window of the open turn as soon as it is complete, so the
+        # speaker-continuity check costs little at TurnEnd.
+        n, wins = self.segmenter.active_frames, self._wins
+        nxt = (max(wins) + HOP_FRAMES) if wins else 0
+        if n >= nxt + WIN_FRAMES and self._has_room():
+            audio, voiced = self.segmenter.turn_audio(), self.segmenter.turn_voiced()
+            while n >= nxt + WIN_FRAMES:
+                if voiced[nxt : nxt + WIN_FRAMES].mean() >= MIN_VOICED:
+                    wins[nxt] = self._spawn(_window(audio, voiced, nxt, WIN_FRAMES))
+                else:
+                    wins[nxt] = None
+                nxt += HOP_FRAMES
+        return out
+
+    def flush(self) -> list[PendingTurn]:
+        return self._handle(self.segmenter.flush(), self._stream_t)
+
+    async def decide(self, pt: PendingTurn) -> DecidedTurn:
+        ev = pt.ev
+        endpoint_s = max(0.0, pt.now - ev.t_end)
+        decision, match, was_early = None, None, False
+        if pt.early is not None:
+            try:
+                match = await pt.early
+            except Exception:  # early check is an optimisation: fall back to the full turn
+                match = None
+        if match is not None:
+            decision = self.policy.decide(match, final=False)
+            was_early = decision.verdict is not Verdict.UNDECIDED
+        if decision is None or decision.verdict is Verdict.UNDECIDED:
+            match = await self._identify_fn(ev.audio)
+            decision = self.policy.decide(match, final=True)
+        assert match is not None and decision is not None
+        if decision.verdict is Verdict.ACCEPT and not await self._continuity_ok(
+            ev, pt.wins, decision.label
+        ):
+            decision, was_early = Decision(Verdict.REJECT), False  # speaker change inside the turn
+        return DecidedTurn(
+            self.source_id, ev.audio, decision.label, decision, match, was_early,
+            ev.t_start, ev.t_end, endpoint_s,
+        )  # fmt: skip
+
+    async def _continuity_ok(
+        self,
+        ev: TurnEnd,
+        wins: "dict[int, asyncio.Task[Match] | None]",
+        label: str | None = None,
+    ) -> bool:
+        """Score every voiced ~0.5 s window of the turn's speech (plus one anchored at the end)
+        and require them to be homogeneous owner speech. Reuses windows scored while the turn
+        was running; computes the rest here."""
+        n = (len(ev.audio) - ev.tail_samples) // FRAME_SIZE  # frames up to the end of speech
+        short = is_short_turn(n)
+        voiced = ev.voiced if ev.voiced is not None else np.ones(len(ev.audio) // FRAME_SIZE, bool)
+        starts = list(range(0, n - WIN_FRAMES + 1, HOP_FRAMES))
+        if n >= WIN_FRAMES and n - WIN_FRAMES not in starts:
+            starts.append(n - WIN_FRAMES)
+        if n < WIN_FRAMES:
+            starts, width = [0], n
+        else:
+            width = WIN_FRAMES
+        matches = []
+        for st in starts:
+            if width <= 0 or voiced[st : st + width].mean() < MIN_VOICED:
+                matches.append(None)  # pause: breaks a run of bad windows
+                continue
+            t = wins.get(st)
+            m = None
+            if t is not None:
+                try:
+                    m = await t
+                except Exception:  # best-effort early scoring: recompute below
+                    m = None
+            if m is None:
+                m = await self._identify_fn(_window(ev.audio, voiced, st, width))
+            matches.append(m)
+        rule = self.policy.windows_rule(matches, label, short=short)
+        if rule is not None:
+            log.info("%s", self.policy.describe_windows(matches, label, short, rule))
+        return rule is None
+
+
 class Pipeline:
     def __init__(
         self,
@@ -106,12 +313,20 @@ class Pipeline:
         self._inflight = 0
         self._lock = threading.Lock()
         self.peak_inflight = 0
-        self.vad, self.segmenter, self.matcher = vad, segmenter, matcher
-        self.policy, self.provider = policy, provider
-        policy.bind_matcher(matcher)
+        self.matcher, self.provider = matcher, provider
+        self.source = SourceProcessor("default", vad, segmenter, matcher, policy)
         self.on_record = on_record
         self.sink = sink  # barge-in: an accepted turn during playback flushes it + interrupts
         self.records: deque[TurnRecord] = deque(maxlen=max_records)  # most recent run/turns
+
+    # vad / segmenter / policy live on the source processor; these stay assignable.
+    vad = property(lambda self: self.source.vad, lambda self, v: setattr(self.source, "vad", v))
+    segmenter = property(
+        lambda self: self.source.segmenter, lambda self, v: setattr(self.source, "segmenter", v)
+    )
+    policy = property(
+        lambda self: self.source.policy, lambda self, v: setattr(self.source, "policy", v)
+    )
 
     def _make_identifier(self) -> "_Identifier":
         if self.isolation == "thread":
@@ -125,106 +340,62 @@ class Pipeline:
         Identification and commits run in a worker task, so the frame loop is never blocked by
         them; a failure on one turn drops that turn and the session continues.
         """
-        self.vad.reset()
-        self.segmenter.reset()
         self._ident = self._make_identifier()
         self.records.clear()
         self._inflight = 0
         await self.provider.connect()
-        early: asyncio.Task[Match] | None = None
-        wins: dict[
-            int, asyncio.Task[Match] | None
-        ] = {}  # window start frame -> score (None: pause)
-        early_len = 0
         barge_tasks: set[asyncio.Task] = set()
-        queue: asyncio.Queue[tuple | None] = asyncio.Queue(self.max_pending)
+        queue: asyncio.Queue[PendingTurn | None] = asyncio.Queue(self.max_pending)
         worker = asyncio.create_task(self._worker(queue))
-        stream_t = 0.0  # stream time of the next frame's start
-
-        def cancel_all() -> None:
-            nonlocal early
-            if early is not None:
-                early.cancel()
-            for t in wins.values():
-                if t is not None:
-                    t.cancel()
-            early = None
-            wins.clear()
 
         def has_room() -> bool:
             return queue.qsize() < self.max_pending and self._inflight < self.max_inflight - 2
 
-        def on_early(task: "asyncio.Task[Match]") -> None:
+        def on_early_accept() -> None:
             # Speaker confirmed mid-turn: stop the reply now, not at the end of the turn.
-            if task.cancelled() or task.exception() is not None or self.sink is None:
-                return
-            if self.policy.decide(task.result(), final=False).verdict is Verdict.ACCEPT:
+            if self.sink is not None:
                 t = asyncio.create_task(self._barge_in())
                 barge_tasks.add(t)
                 t.add_done_callback(barge_tasks.discard)
 
-        def handle(events: list, now: float) -> None:
-            nonlocal early, early_len
-            for ev in events:
-                if isinstance(ev, SpeechStart):
-                    cancel_all()
-                elif isinstance(ev, IdentifyReady):
-                    early_len = len(ev.audio)
-                    if has_room():  # else the turn is decided at TurnEnd
-                        early = self._spawn(ev.audio)
-                        early.add_done_callback(on_early)
-                elif isinstance(ev, TurnEnd):
-                    try:
-                        queue.put_nowait(
-                            (ev, early, early_len, dict(wins), now, time.perf_counter())
-                        )
-                        early = None
-                        wins.clear()
-                    except asyncio.QueueFull:  # never block frame ingestion
-                        cancel_all()
-                        self._record_error(ev, "overflow", now, time.perf_counter())
+        src = self.source
+        src.bind(self._identify, has_room, on_early_accept)
+        src.reset()
+
+        def enqueue(turns: list[PendingTurn]) -> None:
+            for pt in turns:
+                try:
+                    queue.put_nowait(pt)
+                except asyncio.QueueFull:  # never block frame ingestion
+                    pt.cancel()
+                    self._record_error(pt.ev, "overflow", pt.now, time.perf_counter())
 
         try:
             async for frame in _aiter(frame_source):
-                prob = self.vad.process(frame)
-                stream_t += len(frame) / 16000
-                handle(self.segmenter.process(frame, prob), stream_t)
-                # Score each ~0.5 s window of the open turn as soon as it is complete, so the
-                # speaker-continuity check costs little at TurnEnd.
-                n = self.segmenter.active_frames
-                nxt = (max(wins) + HOP_FRAMES) if wins else 0
-                if n >= nxt + WIN_FRAMES and has_room():
-                    audio, voiced = self.segmenter.turn_audio(), self.segmenter.turn_voiced()
-                    while n >= nxt + WIN_FRAMES:
-                        if voiced[nxt : nxt + WIN_FRAMES].mean() >= MIN_VOICED:
-                            wins[nxt] = self._spawn(_window(audio, voiced, nxt, WIN_FRAMES))
-                        else:
-                            wins[nxt] = None
-                        nxt += HOP_FRAMES
+                enqueue(src.push(frame))
                 await asyncio.sleep(0)  # let the worker run
-            handle(self.segmenter.flush(), stream_t)
+            enqueue(src.flush())
             await queue.put(None)  # bounded: waits only for in-flight turns (sends time out)
             await worker
         finally:
             worker.cancel()
             for t in barge_tasks:
                 t.cancel()
-            cancel_all()
+            src.close()
             self._ident.close()
             await self.provider.close()
 
-    async def _worker(self, queue: "asyncio.Queue[tuple | None]") -> None:
-        while (item := await queue.get()) is not None:
-            ev, now, t0 = item[0], item[4], item[5]
+    async def _worker(self, queue: "asyncio.Queue[PendingTurn | None]") -> None:
+        while (pt := await queue.get()) is not None:
             try:
-                await self._finish(*item)
+                await self._finish(pt)
             except Exception as exc:
                 # Fixed code only: exception payloads may carry audio or embeddings.
                 code = getattr(exc, "code", "turn_error")
                 log.warning("turn dropped: %s", code)
-                self._record_error(ev, code, now, t0)
+                self._record_error(pt.ev, code, pt.now, pt.t0)
             finally:
-                for t in item[3].values():
+                for t in pt.wins.values():
                     if t is not None:
                         t.cancel()
 
@@ -251,11 +422,6 @@ class Pipeline:
             )
         )
 
-    def _spawn(self, audio: np.ndarray) -> "asyncio.Task[Match]":
-        t = asyncio.create_task(self._identify(audio))
-        t.add_done_callback(lambda t: t.cancelled() or t.exception())  # mark retrieved
-        return t
-
     async def _identify(self, audio: np.ndarray) -> Match:
         """Run the matcher on the identification worker, bounded in count and time."""
         with self._lock:
@@ -274,45 +440,6 @@ class Pipeline:
             with self._lock:
                 self._inflight -= 1
 
-    async def _continuity_ok(
-        self,
-        ev: TurnEnd,
-        wins: "dict[int, asyncio.Task[Match] | None]",
-        label: str | None = None,
-    ) -> bool:
-        """Score every voiced ~0.5 s window of the turn's speech (plus one anchored at the end)
-        and require them to be homogeneous owner speech. Reuses windows scored while the turn
-        was running; computes the rest here."""
-        n = (len(ev.audio) - ev.tail_samples) // FRAME_SIZE  # frames up to the end of speech
-        short = is_short_turn(n)
-        voiced = ev.voiced if ev.voiced is not None else np.ones(len(ev.audio) // FRAME_SIZE, bool)
-        starts = list(range(0, n - WIN_FRAMES + 1, HOP_FRAMES))
-        if n >= WIN_FRAMES and n - WIN_FRAMES not in starts:
-            starts.append(n - WIN_FRAMES)
-        if n < WIN_FRAMES:
-            starts, width = [0], n
-        else:
-            width = WIN_FRAMES
-        matches = []
-        for st in starts:
-            if width <= 0 or voiced[st : st + width].mean() < MIN_VOICED:
-                matches.append(None)  # pause: breaks a run of bad windows
-                continue
-            t = wins.get(st)
-            m = None
-            if t is not None:
-                try:
-                    m = await t
-                except Exception:  # best-effort early scoring: recompute below
-                    m = None
-            if m is None:
-                m = await self._identify(_window(ev.audio, voiced, st, width))
-            matches.append(m)
-        rule = self.policy.windows_rule(matches, label, short=short)
-        if rule is not None:
-            log.info("%s", self.policy.describe_windows(matches, label, short, rule))
-        return rule is None
-
     async def _barge_in(self) -> None:
         """An accepted turn confirmed while a reply is playing: flush the sink, stop the reply.
 
@@ -326,55 +453,29 @@ class Pipeline:
         except Exception:
             log.warning("barge-in failed", exc_info=False)
 
-    async def _finish(
-        self,
-        ev: TurnEnd,
-        early: "asyncio.Task[Match] | None",
-        early_len: int,
-        wins: "dict[int, asyncio.Task[Match] | None]",
-        now: float,
-        t0: float,
-    ) -> None:
-        """`t0`: perf_counter when the TurnEnd was emitted (includes any queueing delay)."""
-        endpoint_s = max(0.0, now - ev.t_end)
-        decision, match, was_early = None, None, False
-        if early is not None:
-            try:
-                match = await early
-            except Exception:  # early check is an optimisation: fall back to the full turn
-                match = None
-        if match is not None:
-            decision = self.policy.decide(match, final=False)
-            was_early = decision.verdict is not Verdict.UNDECIDED
-        if decision is None or decision.verdict is Verdict.UNDECIDED:
-            match = await self._identify(ev.audio)
-            decision = self.policy.decide(match, final=True)
-        assert match is not None and decision is not None
-        if decision.verdict is Verdict.ACCEPT and not await self._continuity_ok(
-            ev, wins, decision.label
-        ):
-            decision, was_early = Decision(Verdict.REJECT), False  # speaker change inside the turn
-        if decision.verdict is Verdict.ACCEPT:
+    async def _finish(self, pt: PendingTurn) -> None:
+        """Decide the turn, then commit it if accepted (`pt.t0` includes queueing delay)."""
+        dt = await self.source.decide(pt)
+        if dt.decision.verdict is Verdict.ACCEPT:
             await self._barge_in()
             try:
                 await asyncio.wait_for(
-                    self.provider.send_turn(ev.audio, decision.label), self.send_timeout_s
+                    self.provider.send_turn(dt.audio, dt.label), self.send_timeout_s
                 )
             except TimeoutError as exc:
                 raise _StageError("send_timeout") from exc
             except Exception as exc:
                 raise _StageError("send_error") from exc
-        compute_s = time.perf_counter() - t0
         self._emit(
             TurnRecord(
-                ev.t_start,
-                ev.t_end,
-                decision.verdict,
-                match.name,
-                match.score,
-                was_early,
-                endpoint_s,
-                compute_s,
+                dt.t_start,
+                dt.t_end,
+                dt.decision.verdict,
+                dt.match.name,
+                dt.match.score,
+                dt.early,
+                dt.endpoint_s,
+                time.perf_counter() - pt.t0,
             )
         )
 
@@ -403,6 +504,10 @@ def _window(audio: np.ndarray, voiced: np.ndarray, start: int, width: int) -> np
     """Speech frames only of frames [start, start+width): pauses would skew the embedding."""
     frames = audio[start * FRAME_SIZE : (start + width) * FRAME_SIZE].reshape(-1, FRAME_SIZE)
     return frames[voiced[start : start + width][: len(frames)]].reshape(-1)
+
+
+async def _unbound(audio: np.ndarray) -> Match:
+    raise RuntimeError("SourceProcessor.bind() not called")
 
 
 def _return(obj):

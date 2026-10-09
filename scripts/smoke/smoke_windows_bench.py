@@ -8,7 +8,7 @@ import numpy as np
 from voiceroom.bench import windows as W
 from voiceroom.embedders import get_embedder
 from voiceroom.eval.corpus import SynthCorpus
-from voiceroom.pipeline import Pipeline
+from voiceroom.pipeline import SourceProcessor
 from voiceroom.segmenter import TurnEnd
 from voiceroom.vad import FRAME_SIZE
 
@@ -56,14 +56,14 @@ class _Stub:
         def describe_windows(matches, label, short, rule):
             return rule
 
-    async def _identify(self, audio):
+    async def _identify_fn(self, audio):
         return bad
 
 
 def _ok(seconds):
     n = int(seconds * 16000) // FRAME_SIZE * FRAME_SIZE
     ev = TurnEnd(np.zeros(n, np.float32), 0.0, seconds)
-    return asyncio.run(Pipeline._continuity_ok(_Stub(), ev, {}))
+    return asyncio.run(SourceProcessor._continuity_ok(_Stub(), ev, {}))
 
 
 assert _ok(1.5) and not _ok(3.0)

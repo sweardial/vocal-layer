@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 18:29
-Phase: build · unit tests off · 37/51 done · est. API-equivalent cost $62.46
+Voice Room · 2026-10-09 18:53
+Phase: build · unit tests off · 38/51 done · est. API-equivalent cost $63.51
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -40,8 +40,8 @@ Phase: build · unit tests off · 37/51 done · est. API-equivalent cost $62.46
 ✅ T-034 Make the AS-norm cohort file portable across machines
 ✅ T-035 Reduce owner false-reject on real mic audio
 ✅ T-036 Log which continuity rule fired in the live demo
-🔨 T-037 Free smoke-time headroom before M3 adds room smokes
-⬜ T-038 Extract a per-source turn processor from Pipeline
+✅ T-037 Free smoke-time headroom before M3 adds room smokes
+🔨 T-038 Extract a per-source turn processor from Pipeline
 ⬜ T-039 Build multi-source room pipeline with serialized commits
 ⬜ T-040 Add track-identity verification policy (verified and shared tracks)
 ⬜ T-041 Suppress cross-talk bleed between co-located microphones
@@ -59,6 +59,7 @@ Phase: build · unit tests off · 37/51 done · est. API-equivalent cost $62.46
 ## Recent commits
 
 ```
+fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
 44c833b plan: update backlog
 7e5ed39 T-036: Log which continuity rule fired in the live demo
 2bfc686 T-035: Reduce owner false-reject on real mic audio
@@ -68,5 +69,4 @@ f84d8cc T-033: Add sounddevice as a dependency and fix demo docs
 7ad6c79 T-032: Cut sub-1 s interior-interjection leak without raising owner FR
 92bc771 T-029: Calibrate pipeline continuity check and endpointing on real audio
 86e4bbc T-031: Rework continuity check: longer windows / softer rule to cut owner false-reject
-805c435 T-030: Speed up pipeline bench enrollment and trim smoke total
 ```
