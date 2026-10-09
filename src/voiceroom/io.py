@@ -253,6 +253,7 @@ class SpeakerSink:
         self._played = 0  # device-rate samples of reply `_playing` played so far
         self._playing = -1
         self._latest = -1  # newest reply_id written
+        self._open = False  # a reply has been written whose final chunk has not arrived
         self._cancelled = -1  # replies with id <= this were interrupted
         self._rs: _ChunkResampler | None = None
         self._stream = None
@@ -298,6 +299,7 @@ class SpeakerSink:
                 return
             new_reply = chunk.reply_id != self._latest
             self._latest = chunk.reply_id
+            self._open = not chunk.final
         if new_reply:
             self._rs.reset()
         x = self._rs(chunk)
@@ -321,9 +323,15 @@ class SpeakerSink:
             self._buf.clear()
             self._buffered = 0
             self._played = 0
+            self._open = False
         if self._rs:
             self._rs.reset()
         return ms
+
+    @property
+    def active(self) -> bool:
+        """A reply is still streaming in or queued for the device."""
+        return self._stream is not None and (self._open or bool(self._buf))
 
     @property
     def played_ms(self) -> int:
@@ -384,6 +392,11 @@ class WavSink:
     async def play(self, chunks: AsyncIterator[AudioOut]) -> None:
         async for c in chunks:
             self.write(c)
+
+    active = False  # a file is never barged into
+
+    def interrupt(self) -> int:
+        return 0
 
     def close(self) -> None:
         if not self._f.closed:

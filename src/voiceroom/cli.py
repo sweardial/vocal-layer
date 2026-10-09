@@ -260,6 +260,8 @@ def cmd_demo(args: argparse.Namespace) -> int:
                 _PlayingProvider(inner, sink, linger),
                 matcher_factory=functools.partial(_build_matcher, args.embedder, sigs, threshold),
                 on_record=_turn_printer(),
+                # Unpaced replay: turns outrun playback, so barge-in would chop every reply.
+                sink=None if args.input and not args.realtime else sink,
                 # Unpaced file replay feeds turns far faster than real time: don't overflow.
                 **({"max_pending": 1000} if args.input and not args.realtime else {}),
             )

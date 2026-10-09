@@ -111,7 +111,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: a `[project.scripts] voiceroom` entry point; `enroll` records ~25 s from the mic after an explicit consent prompt (or `--file`, with `--yes` for non-interactive consent) and saves to the encrypted store; `demo` takes `--provider openai|mock`, `--input file.wav` (otherwise mic), `--output-device`/`--out wav`, and `--embedder` (default from config), and prints one line per turn (speaker, decision, latency) without audio or embeddings; `scripts/smoke/smoke_cli.py` runs via subprocess with `--embedder toy` on synthetic wavs: enroll ×2 → list → demo isolation with mock on a conversation wav (asserts only owner turns are reported committed) → delete → list empty; `make check` green.
   depends: T-005, T-019, T-020
 
-- [ ] T-022 | M1 | Support barge-in: stop playback when accepted speaker talks
+- [x] T-022 | M1 | Support barge-in: stop playback when accepted speaker talks
   goal: When an accepted speaker starts talking while the model is responding, stop local playback and interrupt the provider; ignore non-accepted speakers.
   accept: The pipeline issues `provider.interrupt()` and flushes the sink once a turn by an accepted speaker is confirmed during playback (OpenAI adapter: `response.cancel` + `conversation.item.truncate` with played ms). Non-owner speech never interrupts in isolation mode. `scripts/smoke/smoke_bargein.py` uses MockProvider with a long reply and checks two cases: an owner turn mid-reply triggers exactly one interrupt and a sink flush, and a non-owner turn triggers none. `make check` green.
   depends: T-021

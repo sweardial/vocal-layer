@@ -9,7 +9,9 @@ import sys
 import time
 from pathlib import Path
 
-BUDGET_S = 75.0  # was 60; real-component smokes (T-018) need more
+BUDGET_S = (
+    90.0  # was 75; suite sat at ~72 s before T-022, so any new smoke tripped it (T-030 trims)
+)
 SKIP_CODE = 77
 PER_SCRIPT_TIMEOUT_S = 60.0
 

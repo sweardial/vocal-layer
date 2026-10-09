@@ -11,6 +11,7 @@ from collections import deque
 from collections.abc import AsyncIterable, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
@@ -31,6 +32,17 @@ START_TIMEOUT_S = 60.0  # identification child start-up (imports, model load)
 WIN_FRAMES = 16  # continuity windows: 16 frames (~0.5 s) every 8 frames (~0.25 s)
 HOP_FRAMES = 8
 MIN_VOICED = 0.5  # windows with less speech than this are not scored (pauses)
+
+
+class BargeInSink(Protocol):
+    @property
+    def active(self) -> bool:
+        """A reply is queued or playing."""
+        ...
+
+    def interrupt(self) -> int:
+        """Flush queued audio; returns ms of the current reply already played."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -68,6 +80,7 @@ class Pipeline:
         start_timeout_s: float = START_TIMEOUT_S,
         on_record: Callable[[TurnRecord], None] | None = None,
         max_records: int = MAX_RECORDS,
+        sink: "BargeInSink | None" = None,
     ):
         """Identification runs in a child process that is killed on timeout (`isolation=
         "process"`, the default), so a hung backend can neither retain audio nor block exit.
@@ -96,6 +109,7 @@ class Pipeline:
         if isinstance(policy, CollaborationPolicy):
             policy.bind_matcher(matcher)
         self.on_record = on_record
+        self.sink = sink  # barge-in: an accepted turn during playback flushes it + interrupts
         self.records: deque[TurnRecord] = deque(maxlen=max_records)  # most recent run/turns
 
     def _make_identifier(self) -> "_Identifier":
@@ -121,6 +135,7 @@ class Pipeline:
             int, asyncio.Task[Match] | None
         ] = {}  # window start frame -> score (None: pause)
         early_len = 0
+        barge_tasks: set[asyncio.Task] = set()
         queue: asyncio.Queue[tuple | None] = asyncio.Queue(self.max_pending)
         worker = asyncio.create_task(self._worker(queue))
         stream_t = 0.0  # stream time of the next frame's start
@@ -138,6 +153,15 @@ class Pipeline:
         def has_room() -> bool:
             return queue.qsize() < self.max_pending and self._inflight < self.max_inflight - 2
 
+        def on_early(task: "asyncio.Task[Match]") -> None:
+            # Speaker confirmed mid-turn: stop the reply now, not at the end of the turn.
+            if task.cancelled() or task.exception() is not None or self.sink is None:
+                return
+            if self.policy.decide(task.result(), final=False).verdict is Verdict.ACCEPT:
+                t = asyncio.create_task(self._barge_in())
+                barge_tasks.add(t)
+                t.add_done_callback(barge_tasks.discard)
+
         def handle(events: list, now: float) -> None:
             nonlocal early, early_len
             for ev in events:
@@ -147,6 +171,7 @@ class Pipeline:
                     early_len = len(ev.audio)
                     if has_room():  # else the turn is decided at TurnEnd
                         early = self._spawn(ev.audio)
+                        early.add_done_callback(on_early)
                 elif isinstance(ev, TurnEnd):
                     try:
                         queue.put_nowait(
@@ -181,6 +206,8 @@ class Pipeline:
             await worker
         finally:
             worker.cancel()
+            for t in barge_tasks:
+                t.cancel()
             cancel_all()
             self._ident.close()
             await self.provider.close()
@@ -280,6 +307,19 @@ class Pipeline:
             matches.append(m)
         return self.policy.windows_ok(matches, label)
 
+    async def _barge_in(self) -> None:
+        """An accepted turn confirmed while a reply is playing: flush the sink, stop the reply.
+
+        Best effort: a failure here must not drop the user's turn.
+        """
+        if self.sink is None or not self.sink.active:
+            return
+        try:
+            played_ms = self.sink.interrupt()
+            await asyncio.wait_for(self.provider.interrupt(played_ms), self.send_timeout_s)
+        except Exception:
+            log.warning("barge-in failed", exc_info=False)
+
     async def _finish(
         self,
         ev: TurnEnd,
@@ -309,6 +349,7 @@ class Pipeline:
         ):
             decision, was_early = Decision(Verdict.REJECT), False  # speaker change inside the turn
         if decision.verdict is Verdict.ACCEPT:
+            await self._barge_in()
             try:
                 await asyncio.wait_for(
                     self.provider.send_turn(ev.audio, decision.label), self.send_timeout_s

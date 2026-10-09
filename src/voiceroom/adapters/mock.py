@@ -22,7 +22,8 @@ class RecordedTurn:
 
 
 class MockProvider:
-    def __init__(self, sample_rate: int = 16000) -> None:
+    def __init__(self, sample_rate: int = 16000, reply_s: float = REPLY_S) -> None:
+        self.reply_s = reply_s
         self.sample_rate = sample_rate
         self.turns: list[RecordedTurn] = []
         self.interrupts: list[int | None] = []  # played_ms per interrupt
@@ -46,7 +47,7 @@ class MockProvider:
         if audio16k.ndim != 1 or audio16k.size == 0 or audio16k.dtype != np.float32:
             raise ValueError("audio16k must be a non-empty 1-D float32 array")
         self.turns.append(RecordedTurn(audio16k, speaker_label, time.monotonic()))
-        n = int(REPLY_S * self.sample_rate)
+        n = int(self.reply_s * self.sample_rate)
         t = np.arange(n) / self.sample_rate
         tone = (0.1 * np.sin(2 * np.pi * REPLY_HZ * t)).astype(np.float32)
         parts = np.array_split(tone, REPLY_CHUNKS)
