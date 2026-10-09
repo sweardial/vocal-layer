@@ -71,7 +71,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/vad.py` (`VAD.process(frame) -> speech_prob`, `reset()`, frame size per D-003; `SileroVAD(model_path)` via onnxruntime with state carried across frames; `EnergyVAD`); `scripts/smoke/smoke_vad.py` checks that EnergyVAD on a synthetic conversation reaches ≥ 90 % frame agreement with ground truth, and that SileroVAD (SKIP if model or data is absent) reaches ≥ 90 % frame agreement on one LibriSpeech conversation with RTF < 0.1; `make check` green.
   depends: T-008, T-006
 
-- [ ] T-014 | M1 | Implement segmenter with turn endpointing and early decision hooks
+- [x] T-014 | M1 | Implement segmenter with turn endpointing and early decision hooks
   goal: Turn VAD frame decisions into speech segments/turns with hangover-based endpointing, a max turn length, and an "enough audio to identify" event.
   accept: `voiceroom/segmenter.py` (streaming; emits `SpeechStart`, `IdentifyReady(audio_so_far)` after a configurable min duration such as 1.0 s, `TurnEnd(audio, t_start, t_end)` after configurable trailing silence such as 400 ms, pre-roll padding, max-turn split); `scripts/smoke/smoke_segmenter.py` streams a synthetic conversation through EnergyVAD and the segmenter and asserts that turn boundaries are within ±300 ms of ground truth for ≥ 90 % of turns and that no turn spans two speakers when pauses are ≥ 600 ms; `make check` green.
   depends: T-013
