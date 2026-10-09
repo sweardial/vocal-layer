@@ -54,7 +54,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/bench/metrics.py` (EER with its threshold, FAR/FRR at a given threshold, threshold for a target FAR, length buckets <1 s / 1–2 s / 2–4 s / ≥4 s, latency p50/p95, RTF) and `voiceroom/bench/report.py` (writes `reports/bench-<embedder>.md` with all sections plus dataset/seed/config header); `voiceroom/bench/run.py` builds trials from conversation segments (target = owner, non-target = others) against enrolled signatures and times each segment embedding; `scripts/smoke/smoke_bench.py` runs the bench with `--corpus synth --embedder toy` in < 10 s into a temp dir and asserts every report section exists and EER is in [0, 0.5]; `make check` green.
   depends: T-005, T-008
 
-- [ ] T-011 | M0 | Wire make bench to LibriSpeech for all embedders
+- [x] T-011 | M0 | Wire make bench to LibriSpeech for all embedders
   goal: Make `make bench` run end to end on LibriSpeech dev-clean for every installed real embedder and write one report per embedder.
   accept: `make bench` (Makefile and `python -m voiceroom.bench` CLI with `--embedder`, `--corpus`, `--n-conversations`, `--snr`, `--seed`) exits with a clear message pointing to `fetch_data.py`/`fetch_models.py` when assets are missing, otherwise writes `reports/bench-wespeaker-resnet34.md` (and `reports/bench-ecapa-voxceleb.md` if the extra is installed) including clean and noisy (e.g. 10 dB SNR) results; it runs in the container and the reports are committed; bench runtime is noted in summary.md; `make check` green.
   depends: T-006, T-009, T-010

@@ -49,7 +49,7 @@ def build_trials(
     Each segment is also cut at `cut_lengths` (seeded random offset, only if shorter than the
     segment) so short-utterance buckets are populated even when utterances are long.
     A (segment, signature) pair is a target trial when the signature's owner spoke the
-    segment, otherwise non-target. Speaker sets rotate across conversations.
+    segment, otherwise non-target. Speaker sets are seeded random draws.
     """
     all_spk = corpus.speakers()
     n_speakers = min(n_speakers, len(all_spk))
@@ -58,8 +58,8 @@ def build_trials(
     embedder.embed(np.zeros(SAMPLE_RATE, np.float32))  # warm-up, excluded from latency
     sig_cache: dict[tuple[str, ...], dict[str, Signature]] = {}
     for c in range(n_conversations):
-        start = (c * n_speakers) % len(all_spk)
-        spks = [all_spk[(start + i) % len(all_spk)] for i in range(n_speakers)]
+        pick = np.random.default_rng([seed, 11, c]).choice(len(all_spk), n_speakers, replace=False)
+        spks = [all_spk[i] for i in sorted(pick)]
         key = tuple(spks)
         if key not in sig_cache:
             sig_cache[key] = enroll_speakers(corpus, spks, embedder, n_enroll, seed)

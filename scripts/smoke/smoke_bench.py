@@ -30,7 +30,9 @@ assert [M.bucket_of(d) for d in (0.5, 1.0, 2.0, 3.9, 4.0)] == [
 
 t0 = time.monotonic()
 with tempfile.TemporaryDirectory() as d:
-    assert main(["--corpus", "synth", "--embedder", "toy", "--out", d]) == 0
+    assert (
+        main(["--corpus", "synth", "--embedder", "toy", "--n-conversations", "4", "--out", d]) == 0
+    )
     text = (Path(d) / "bench-toy.md").read_text()
 dt = time.monotonic() - t0
 for sec in (
@@ -43,6 +45,10 @@ for sec in (
     assert sec in text, sec
 for h in ("dataset", "seed", "config"):
     assert f"**{h}**" in text, h
+assert "\n## clean\n" in text and "\n## 10 dB SNR\n" in text
+assert len(re.findall(r"EER \*\*([\d.]+)%", text)) == 2
+with tempfile.TemporaryDirectory() as d2:
+    assert main(["--corpus", "librispeech", "--data", d2, "--embedder", "toy"]) == 2
 for b in ("<1 s", "1-2 s", "2-4 s", ">=4 s"):
     assert f"| {b} |" in text, b
 eer = float(re.search(r"EER \*\*([\d.]+)%", text).group(1)) / 100
