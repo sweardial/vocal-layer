@@ -4,6 +4,7 @@ A script exits 0 for PASS, 77 for SKIP, anything else is FAIL. Exits non-zero on
 failure or if the total time exceeds BUDGET_S.
 """
 
+import argparse
 import os
 import subprocess
 import sys
@@ -14,6 +15,11 @@ from pathlib import Path
 BUDGET_S = 60.0  # wall time; scripts run WORKERS at a time (they were ~83 s serially, T-030)
 CPUS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
 WORKERS = max(2, min(4, CPUS // 2))  # many smokes are realtime-paced (sleep-bound)
+# Scripts run concurrently: one BLAS/torch thread each avoids oversubscribing the CPUs.
+ENV = {
+    **os.environ,
+    **{k: "1" for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")},
+}
 SKIP_CODE = 77
 PER_SCRIPT_TIMEOUT_S = 60.0
 
@@ -24,6 +30,7 @@ def run(path: Path) -> tuple[str, float, str]:
         proc = subprocess.run(
             [sys.executable, str(path)],
             capture_output=True,
+            env=ENV,
             text=True,
             timeout=PER_SCRIPT_TIMEOUT_S,
         )
@@ -36,12 +43,16 @@ def run(path: Path) -> tuple[str, float, str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-j", type=int, default=WORKERS, help="concurrent scripts")
+    args = parser.parse_args()
     scripts = sorted(Path(__file__).parent.glob("smoke_*.py"))
     total_start = time.monotonic()
     failed = 0
-    with ThreadPoolExecutor(WORKERS) as pool:
+    with ThreadPoolExecutor(max(1, args.j)) as pool:
         results = list(pool.map(run, scripts))
-    for path, (status, elapsed, tail) in zip(scripts, results, strict=True):
+    rows = sorted(zip(scripts, results, strict=True), key=lambda r: -r[1][1])
+    for path, (status, elapsed, tail) in rows:
         print(f"{status} {path.name} ({elapsed:.2f}s)")
         if status == "FAIL":
             failed += 1

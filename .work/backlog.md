@@ -190,7 +190,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
 
 Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source layer: one VAD and segmenter per participant track, a shared matcher, one provider, and serialized commits. Identity comes from the track and is *verified* by voice 1:1, because best-of-N identification on short real-mic turns is what caused owner false-rejects (T-023, D-014 to D-017). Integration code for LiveKit lives in `src/voiceroom/adapters/` (the provider-import grep in `smoke_mock_provider.py` already bans `livekit` elsewhere). Everything is built against an in-memory `FakeRoom` first, then a local `livekit-server --dev` (localhost only, no internet). Real devices and LiveKit Cloud come last.
 
-- [ ] T-037 | M3 | Free smoke-time headroom before M3 adds room smokes
+- [x] T-037 | M3 | Free smoke-time headroom before M3 adds room smokes
   goal: `make smoke` is 40–59 s against the 60 s budget (T-030/T-036), and M3 adds 5–6 smokes, so cut the total well below the budget.
   accept: `scripts/smoke/run_all.py` prints a per-script time table sorted by duration. The slowest smokes are trimmed (fewer conversations, cached signatures, shared temp assets) or run concurrently via a `-j` option the Makefile uses. With real models and data present in the container, `make smoke` total is ≤ 35 s, recorded in summary.md as the median of 3 runs. No smoke loses its key assertion; each trimmed check is listed in the summary. `make check` green.
   depends: none

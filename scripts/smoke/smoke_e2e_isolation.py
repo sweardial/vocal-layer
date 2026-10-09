@@ -55,6 +55,7 @@ for seed in (11, 12):
         ),
         provider,
         max_pending=1000,
+        max_inflight_identify=1000,  # finite synthetic input: no busy drops under CPU load
         isolation="thread",
     )
     asyncio.run(pipe.run(iter_frames(conv.audio, FRAME_SIZE)))
@@ -84,6 +85,7 @@ late = Pipeline(
     IsolationPolicy(owner, threshold, embedder="toy"),
     MockProvider(),
     max_pending=1000,
+    max_inflight_identify=1000,  # finite synthetic input: no busy drops under CPU load
     isolation="thread",
 )
 asyncio.run(late.run(iter_frames(conv.audio, FRAME_SIZE)))
@@ -103,7 +105,7 @@ def make_pipe(provider, segmenter=None, **kw):
         ),
         provider,
         **(
-            {"max_pending": 1000, "isolation": "thread"} | kw
+            {"max_pending": 1000, "max_inflight_identify": 1000, "isolation": "thread"} | kw
         ),  # offline source is faster than real time
     )
 
@@ -193,6 +195,7 @@ for kw in ({"early_score_buffer": 0.02, "early_margin": 0.02}, {}):
             IsolationPolicy(owner, threshold, embedder="toy", **kw),
             MockProvider(),
             max_pending=1000,
+            max_inflight_identify=1000,  # finite synthetic input: no busy drops under CPU load
             isolation="thread",
         )
         asyncio.run(pl.run(iter_frames(mixed, FRAME_SIZE)))
