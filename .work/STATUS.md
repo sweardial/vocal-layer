@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 20:13
-Phase: build · unit tests off · 11/23 done · est. API-equivalent cost $5.82
+Voice Room · 2026-10-08 21:07
+Phase: build · unit tests off · 12/26 done · est. API-equivalent cost $6.49
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -14,8 +14,8 @@ Phase: build · unit tests off · 11/23 done · est. API-equivalent cost $5.82
 ✅ T-009 Add optional SpeechBrain ECAPA embedder
 ✅ T-010 Implement bench metrics, trials, and report writer
 ✅ T-011 Wire make bench to LibriSpeech for all embedders
-🔨 T-012 Choose embedder and threshold from bench results
-⬜ T-013 Add streaming VAD with Silero ONNX and energy fallback
+✅ T-012 Choose embedder and threshold from bench results
+🔨 T-013 Add streaming VAD with Silero ONNX and energy fallback
 ⬜ T-014 Implement segmenter with turn endpointing and early decision hooks
 ⬜ T-015 Define provider adapter interface and MockProvider
 ⬜ T-016 Build streaming pipeline with isolation policy
@@ -26,11 +26,15 @@ Phase: build · unit tests off · 11/23 done · est. API-equivalent cost $5.82
 ⬜ T-021 Add voiceroom CLI for enroll, list, delete, and demo
 ⬜ T-022 Support barge-in: stop playback when accepted speaker talks
 ⬜ T-023 Write macOS demo checklist and request human live test
+⬜ T-024 Improve noisy and short-utterance accuracy
+⬜ T-025 Reduce p95 embedding latency
+⬜ T-026 Evaluate CAM++ as an embedder candidate
 ```
 
 ## Recent commits
 
 ```
+a9735c7 T-012: Choose embedder and threshold from bench results
 3f0b28f T-011: Wire make bench to LibriSpeech for all embedders
 5d2dc83 T-010: Implement bench metrics, trials, and report writer
 ce62fbb T-009: Add optional SpeechBrain ECAPA embedder
@@ -40,5 +44,4 @@ e4fa947 docs: HANDOFF.md for interactive sessions; point to it from CLAUDE.md
 6d86fcc T-006: Add model fetch script and WeSpeaker ONNX embedder
 c6253e8 harness: conversational Telegram, resumable sessions, self-reload, keep harness out of task commits
 d1fb7a5 T-005: Add encrypted file-based signature store with delete
-099463b Commit 1
 ```

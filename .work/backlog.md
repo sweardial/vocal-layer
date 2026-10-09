@@ -66,7 +66,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
 
 ## M1: Live isolation with a realtime model
 
-- [ ] T-013 | M1 | Add streaming VAD with Silero ONNX and energy fallback
+- [x] T-013 | M1 | Add streaming VAD with Silero ONNX and energy fallback
   goal: Provide a frame-level streaming `VAD` interface with a Silero ONNX implementation and an `EnergyVAD` for synthetic audio.
   accept: `voiceroom/vad.py` (`VAD.process(frame) -> speech_prob`, `reset()`, frame size per D-003; `SileroVAD(model_path)` via onnxruntime with state carried across frames; `EnergyVAD`); `scripts/smoke/smoke_vad.py` checks that EnergyVAD on a synthetic conversation reaches ≥ 90 % frame agreement with ground truth, and that SileroVAD (SKIP if model or data is absent) reaches ≥ 90 % frame agreement on one LibriSpeech conversation with RTF < 0.1; `make check` green.
   depends: T-008, T-006
