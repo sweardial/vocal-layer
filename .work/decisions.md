@@ -65,3 +65,9 @@
 - Caveats: one seed, ~720 ≥ 1 s targets so ±1-2 pt noise; cohort comes from the same corpus; noise is synthetic white.
 - AS-norm scores are z-units: the 2.88 threshold holds only for a bench-like cohort, and IsolationPolicy's cosine-scale early buffers must be rescaled before it is enabled in the pipeline (T-027).
 - Next: stronger levers are likely a noise-robust embedder (T-026 CAM++) or denoising front-end; re-check on live audio (T-023).
+
+## D-012 (2026-10-09) CAM++ evaluated, not adopted (T-026)
+- What: added `campplus-en-voxceleb` (3D-Speaker CAM++ `iic/speech_campplus_sv_en_voxceleb_16k`, sherpa-onnx ONNX export, 29.6 MB, 512-d, Apache-2.0 per the ModelScope card and the 3D-Speaker repo; VoxCeleb data terms still apply; sha256 pinned in `scripts/fetch_models.py`). Same 80-dim Kaldi fbank (povey window, [-1,1] samples, per-utterance mean norm). Registered and in `make bench`; report `reports/bench-campplus-en-voxceleb.md`. Threshold 0.376 in config (clean 1 % FAR point).
+- Numbers (LibriSpeech dev-clean, same bench as D-009): clean EER 4.24 % (wespeaker 3.33 %); 10 dB EER 11.25 % (wespeaker 10.10 %). ≥ 1 s at its threshold: clean FAR 1.32 % / FRR 0.69 % (wespeaker 1.18 / 0.28); 10 dB FRR 16.81 % (wespeaker 16.94 %, i.e. no noise gain). Latency p95 ~83 ms vs wespeaker ~165 ms (RTF 0.009 vs 0.017); about 2x faster, but reports come from separate runs under varying machine load.
+- Decision: wespeaker-resnet34 stays the default (D-009 unchanged); CAM++ does not beat it on accuracy or noise robustness. It is a faster fallback only if latency becomes binding. Not a lever for the noisy-FRR gap (T-024 follow-up stands).
+- Caveat: one seed, same corpus as calibration; threshold not tuned beyond the clean 1 % FAR point.

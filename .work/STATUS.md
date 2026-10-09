@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 01:52
-Phase: build · unit tests off · 23/31 done · est. API-equivalent cost $38.88
+Voice Room · 2026-10-09 02:08
+Phase: build · unit tests off · 24/31 done · est. API-equivalent cost $39.02
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -28,8 +28,8 @@ Phase: build · unit tests off · 23/31 done · est. API-equivalent cost $38.88
 ⛔ T-023 Write macOS demo checklist and request human live test
      ❓ # Needs human: macOS live test (T-023)
 ✅ T-024 Improve noisy and short-utterance accuracy
-🔨 T-025 Reduce p95 embedding latency
-⬜ T-026 Evaluate CAM++ as an embedder candidate
+✅ T-025 Reduce p95 embedding latency
+🔨 T-026 Evaluate CAM++ as an embedder candidate
 ⬜ T-027 Ship AS-norm cohort and decide noise-aug enrollment defaults
 ⬜ T-028 Calibrate speaker-continuity window parameters on bench audio
 ⬜ T-028 Collaboration: split turns on mid-turn speaker change instead of dropping
@@ -40,6 +40,7 @@ Phase: build · unit tests off · 23/31 done · est. API-equivalent cost $38.88
 ## Recent commits
 
 ```
+2c81488 T-025: Reduce p95 embedding latency
 6c4fef0 wip(T-023): blocked, awaiting human
 bb64f64 T-022: Support barge-in: stop playback when accepted speaker talks
 8cdd5af T-021: Add voiceroom CLI for enroll, list, delete, and demo
@@ -49,5 +50,4 @@ e0de87c T-017: Add collaboration mode with speaker attribution
 abeda34 T-016: Build streaming pipeline with isolation policy
 0c61345 T-024: Improve noisy and short-utterance accuracy
 21d449e T-019: Implement OpenAI Realtime adapter against a local fake server
-061da49 wip(T-016): blocked, did not converge
 ```

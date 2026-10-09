@@ -6,6 +6,7 @@ DEFAULT_EMBEDDER = "wespeaker-resnet34"
 THRESHOLDS: dict[str, float] = {
     "wespeaker-resnet34": 0.35,
     "ecapa-voxceleb": 0.32,
+    "campplus-en-voxceleb": 0.376,  # clean 1 % FAR point; candidate only (D-012)
 }
 FALLBACK_THRESHOLD = 0.35  # unknown embedders (e.g. toy); calibrate before trusting
 

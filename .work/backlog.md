@@ -132,7 +132,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: bench report shows p95 < 250 ms for the default embedder with no accuracy change (EER within 0.2 pt); `make bench` and `make check` green.
   depends: T-012
 
-- [ ] T-026 | M0 | Evaluate CAM++ as an embedder candidate
+- [x] T-026 | M0 | Evaluate CAM++ as an embedder candidate
   goal: Try 3D-Speaker CAM++ ONNX (verify licence/weights) against wespeaker on the bench.
   accept: a CAM++ embedder in the registry (or a decision recording why not) and its bench report; D-0xx updated if it beats wespeaker; `make bench` and `make check` green.
   depends: T-012

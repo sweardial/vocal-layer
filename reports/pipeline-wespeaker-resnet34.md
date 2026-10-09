@@ -2,14 +2,14 @@
 
 - dataset: LibriSpeech dev-clean
 - config: conversations=4 turns=6 seed=0 speed=1x window_drop=config enroll_utts=5 VAD=SileroVAD
-- wall time: 538s
+- wall time: 517s
 
 ## Latency: end of speech -> commit (isolation pipeline, realtime pacing)
 
 - 24 ground-truth segments -> 39 pipeline turns (1 committed; read speech pauses split some segments), 24 decided early, 0 dropped by errors
-- **commit latency (n=1): p50 489 ms, p95 489 ms** vs 700 ms target: INSUFFICIENT DATA (n=1 < 20 commits)
-- decision latency, commit or drop (n=39; drops skip continuity and send, so this is not the commit target): p50 384 ms, p95 493 ms
-- of which endpointing (segmenter hangover, stream time): p50 384 ms, p95 384 ms; compute after TurnEnd (wall): p50 0 ms, p95 109 ms
+- **commit latency (n=1): p50 404 ms, p95 404 ms** vs 700 ms target: INSUFFICIENT DATA (n=1 < 20 commits)
+- decision latency, commit or drop (n=39; drops skip continuity and send, so this is not the commit target): p50 384 ms, p95 438 ms
+- of which endpointing (segmenter hangover, stream time): p50 384 ms, p95 384 ms; compute after TurnEnd (wall): p50 0 ms, p95 59 ms
 
 ## Isolation (owner only reaches the model)
 
