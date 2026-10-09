@@ -99,7 +99,16 @@ class IsolationPolicy:
         typical owner score. Isolated bad windows are noise (0.5 s windows of one speaker are
         unreliable, D-015); `window_bad_run` consecutive ones mean someone else spoke.
         """
-        return not self._bad_run(matches, self.owner, self.score_scale, short)
+        return self.windows_rule(matches, label, short) is None
+
+    def windows_rule(
+        self, matches: list[Match], label: str | None = None, short: bool = False
+    ) -> str | None:
+        """Like `windows_ok` but returns the name of the rule that rejects (None = ok)."""
+        return _continuity_rule(self, matches, self.owner, self.score_scale, short)
+
+    def describe_windows(self, matches: list, label: str | None, short: bool, rule: str) -> str:
+        return describe_windows(self, matches, self.owner, short, rule)
 
 
 UNKNOWN_LABEL = "Unknown"
@@ -114,14 +123,41 @@ def _run(flags: list[bool], need: int) -> bool:
     return False
 
 
-def _continuity_bad(self, matches: list, who: str, k: float, short: bool) -> bool:
-    """Windows (None = pause) are bad if `who` is not best or scores under the floor."""
+def _floor(self, matches: list, who: str, k: float) -> float | None:
     scores = [m.scores.get(who, float("-inf")) for m in matches if m is not None]
     if not scores:
-        return False
-    floor = max(
+        return None
+    return max(
         self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
     )
+
+
+def _continuity_bad(self, matches: list, who: str, k: float, short: bool) -> bool:
+    return _continuity_rule(self, matches, who, k, short) is not None
+
+
+def describe_windows(self, matches: list, who: str, short: bool, rule: str) -> str:
+    """One log line: the rule that rejected a turn and the window numbers (no audio/embeddings)."""
+    k = getattr(self, "score_scale", None) or 1.0
+    floor = _floor(self, matches, who, k)
+    wins = [
+        "pause"
+        if m is None
+        else f"{m.scores.get(who, float('-inf')):.2f}/{m.name or m.best or '-'}"
+        for m in matches
+    ]
+    f = "n/a" if floor is None else f"{floor:.2f}"
+    return (
+        f"continuity reject: rule={rule} who={who} short={short} thr={self.threshold:.2f} "
+        f"floor={f} windows(score/name)=[{' '.join(wins)}]"
+    )
+
+
+def _continuity_rule(self, matches: list, who: str, k: float, short: bool) -> str | None:
+    """Name of the rule that rejects the windows (None = ok). Windows are None for pauses."""
+    floor = _floor(self, matches, who, k)
+    if floor is None:
+        return None
     bad = [
         None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
         for m in matches
@@ -140,12 +176,15 @@ def _continuity_bad(self, matches: list, who: str, k: float, short: bool) -> boo
         low = [
             m is not None and m.scores.get(who, float("-inf")) < floor for m in matches
         ]  # same floor as `bad`, no rival needed (owner-only enrollment)
-        return _run(others, need) or _run(low, 2)
-    return (
-        foreign
-        or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
-        or _sustained(deep, DEEP_BAD_RUN)
-    )
+        if _run(others, need):
+            return "short-foreign-run"
+        return "short-low-run" if _run(low, 2) else None
+    if foreign:
+        return "foreign-named"
+    scored = [f for f in bad if f is not None]
+    if _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN):
+        return "all-bad" if scored and all(scored) else "bad-run"
+    return "deep-run" if _sustained(deep, DEEP_BAD_RUN) else None
 
 
 def _sustained(flags: list[bool | None], need: int) -> bool:
@@ -248,9 +287,19 @@ class CollaborationPolicy:
         Enrolled label: like isolation, every window must best-match that speaker and not dip
         below the floor. "Unknown": no window may clearly match an enrolled speaker.
         """
+        return self.windows_rule(matches, label, short) is None
+
+    def windows_rule(
+        self, matches: list[Match], label: str | None = None, short: bool = False
+    ) -> str | None:
+        """Like `windows_ok` but returns the name of the rule that rejects (None = ok)."""
         if label is None or not matches:
-            return True
+            return None
         if label == UNKNOWN_LABEL:
             flags = [None if m is None else m.name in self.enrolled for m in matches]
-            return not _sustained(flags, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
-        return not self._bad_run(matches, label, self.score_scale or 1.0, short)
+            bad = _sustained(flags, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+            return "unknown-matches-enrolled" if bad else None
+        return _continuity_rule(self, matches, label, self.score_scale or 1.0, short)
+
+    def describe_windows(self, matches: list, label: str | None, short: bool, rule: str) -> str:
+        return describe_windows(self, matches, label or "-", short, rule)

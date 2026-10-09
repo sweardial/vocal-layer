@@ -49,8 +49,12 @@ assert not pol.windows_ok([good, low, low], short=True) and pol.windows_ok(
 class _Stub:
     class policy:
         @staticmethod
-        def windows_ok(matches, label=None, short=False):
-            return short
+        def windows_rule(matches, label=None, short=False):
+            return None if short else "stub"
+
+        @staticmethod
+        def describe_windows(matches, label, short, rule):
+            return rule
 
     async def _identify(self, audio):
         return bad

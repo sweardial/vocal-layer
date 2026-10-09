@@ -181,7 +181,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: Human live test (T-023, wespeaker, `--no-cohort`): 3 of 8 alice-identified turns were dropped (1.15 s, 1.5 s, 0.16 s turns), i.e. owner false-reject on real MacBook mic audio. Investigate and tune (threshold, continuity rule, short-turn handling); also re-test narrowband (phone) voices.
   accept: documented analysis and a change or decision in decisions.md; bench numbers not regressed; `make check` green.
   depends: T-023, T-034
-- [ ] T-036 | M1 | Log which continuity rule fired in the live demo
+- [x] T-036 | M1 | Log which continuity rule fired in the live demo
   goal: T-035's cause of live owner false-reject is inferred. Make `voiceroom demo` (debug flag) log, per dropped turn, the rule that rejected it and the window scores (numbers only, no audio/embeddings); then a human reruns the demo.
   accept: smoke proves the log line on a synthetic turn; `make check` green.
   depends: T-035

@@ -308,7 +308,10 @@ class Pipeline:
             if m is None:
                 m = await self._identify(_window(ev.audio, voiced, st, width))
             matches.append(m)
-        return self.policy.windows_ok(matches, label, short=short)
+        rule = self.policy.windows_rule(matches, label, short=short)
+        if rule is not None:
+            log.info("%s", self.policy.describe_windows(matches, label, short, rule))
+        return rule is None
 
     async def _barge_in(self) -> None:
         """An accepted turn confirmed while a reply is playing: flush the sink, stop the reply.

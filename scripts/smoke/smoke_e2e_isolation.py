@@ -259,3 +259,29 @@ print(
 assert non_owner_committed == 0
 assert owner_ok >= 0.9 * owner_total, (owner_ok, owner_total)
 print("e2e isolation ok")
+
+# T-036: a turn dropped by continuity logs the rule and window scores (numbers only).
+import logging  # noqa: E402
+import re  # noqa: E402
+
+
+class _Cap(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def emit(self, record):
+        self.lines.append(record.getMessage())
+
+
+cap, plog = _Cap(), logging.getLogger("voiceroom.pipeline")
+plog.addHandler(cap)
+plog.setLevel(logging.INFO)
+mixed = np.concatenate([seg_audio(True), seg_audio(False), gap])
+dropped = make_pipe(MockProvider())
+asyncio.run(dropped.run(iter_frames(mixed, FRAME_SIZE)))
+plog.removeHandler(cap)
+assert dropped.records[0].verdict is Verdict.REJECT
+cr = [ln for ln in cap.lines if ln.startswith("continuity reject:")]
+assert len(cr) == 1 and re.search(r"rule=[\w-]+ .*thr=-?[\d.]+ floor=-?[\d.]+ windows", cr[0]), cr
+print(cr[0])

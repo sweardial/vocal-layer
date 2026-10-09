@@ -213,6 +213,11 @@ async def _demo(args, pipe, sink) -> None:
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
+    if args.debug:  # per dropped turn: the continuity rule + window scores (numbers only)
+        import logging
+
+        logging.basicConfig(level=logging.WARNING, format="%(message)s")
+        logging.getLogger("voiceroom.pipeline").setLevel(logging.INFO)
     from voiceroom.adapters import MockProvider, OpenAIRealtimeProvider
     from voiceroom.io import SpeakerSink, WavSink
     from voiceroom.pipeline import Pipeline
@@ -349,6 +354,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m.add_argument("--unknown", choices=["drop", "label"], default="drop", help="collaboration")
     m.add_argument("--realtime", action="store_true", help="pace --input at wall-clock speed")
+    m.add_argument(
+        "--debug", action="store_true", help="log which continuity rule dropped a turn + scores"
+    )
     m.set_defaults(fn=cmd_demo)
     return p
 
