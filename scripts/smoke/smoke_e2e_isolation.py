@@ -165,19 +165,38 @@ codes = {r.error for r in slow.records if r.error}
 assert {"send_timeout", "overflow"} <= codes, codes
 assert not slow.provider.turns
 
-# Short continuation (0.16 s) after the early check, and the no-early fallback path with the
-# policy's default (wide) buffers: neither may forward the non-owner audio.
+# Short continuation after the early check (a tail of 0.16-0.5 s on a ~1.2 s turn is accepted by
+# design: turns under CONTINUITY_MIN_S only reject on clearly foreign windows, T-035), and the
+# no-early fallback path with the policy's default (wide) buffers: neither may forward the
+# non-owner audio.
 for kw in (
     {"early_score_buffer": 0.02, "early_margin": 0.02},
     {},
 ):
-    for suffix_s, tail in ((0.16, gap), (0.5, gap), (0.16, None), (0.256, None)):
+    for suffix_s, tail in ((1.0, gap), (1.0, None), (0.75, None)):
         parts = [seg_audio(True, 1.024), seg_audio(False, suffix_s)]  # tail None = ends at EOF
         mixed = np.concatenate(parts + ([tail] if tail is not None else []))
         pl = make_pipe(MockProvider())
         pl.policy = IsolationPolicy(owner, threshold, embedder="toy", **kw)
         asyncio.run(pl.run(iter_frames(mixed, FRAME_SIZE)))
         assert len(pl.records) == 1 and pl.records[0].verdict is Verdict.REJECT, pl.records
+        assert not pl.provider.turns, (kw, suffix_s)
+# Only the owner enrolled (every tail speaker is unenrolled, the owner is always "best"): a short
+# turn must still reject 0.75-0.9 s tails by score alone.
+for kw in ({"early_score_buffer": 0.02, "early_margin": 0.02}, {}):
+    for suffix_s in (0.75, 0.9):
+        mixed = np.concatenate([seg_audio(True, 1.024), seg_audio(False, suffix_s)])
+        pl = Pipeline(
+            EnergyVAD(),
+            Segmenter(),
+            Matcher(sigs[:1], threshold=threshold, embedder=emb),
+            IsolationPolicy(owner, threshold, embedder="toy", **kw),
+            MockProvider(),
+            max_pending=1000,
+            isolation="thread",
+        )
+        asyncio.run(pl.run(iter_frames(mixed, FRAME_SIZE)))
+        assert len(pl.records) == 1 and pl.records[0].verdict is Verdict.REJECT, (kw, suffix_s)
         assert not pl.provider.turns, (kw, suffix_s)
 assert not make_pipe(MockProvider()).policy.early_score_buffer > 0.1  # smoke buffers are narrow
 

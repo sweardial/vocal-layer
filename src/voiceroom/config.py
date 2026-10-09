@@ -58,6 +58,10 @@ COHORT_SHA256: dict[str, str] = {
 # Early decision: shortest segment (s) the pipeline should classify. Consumed by the pipeline
 # (M1); shorter segments have ~19 % clean FRR at the threshold above.
 MIN_DECISION_S = 1.0
+# Turns shorter than this (length incl. pre-roll, to the end of speech) get a lenient continuity
+# check (policy `short`): 0.5 s windows on a 1-2 s turn are too noisy on real mics (T-035: owner
+# turns of 1.15 s and 1.5 s rejected) and the whole-turn score already covers a short turn.
+CONTINUITY_MIN_S = 2.0
 
 
 def threshold_for(embedder_name: str) -> float:

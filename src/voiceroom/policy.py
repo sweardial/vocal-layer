@@ -83,46 +83,69 @@ class IsolationPolicy:
                 return Decision(Verdict.REJECT)
         return Decision(Verdict.UNDECIDED)
 
-    def _bad_run(self, matches: list, who: str, k: float) -> bool:
-        """Windows (None = pause) are bad if `who` is not best or scores under the floor."""
-        scores = [m.scores.get(who, float("-inf")) for m in matches if m is not None]
-        if not scores:
-            return False
-        floor = max(
-            self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
-        )
-        bad = [
-            None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
-            for m in matches
-        ]
-        # clearly someone else (not best, far under the threshold): needs a shorter run than `bad`
-        deep = [
-            None
-            if m is None
-            else (
-                m.best != who
-                and m.scores.get(who, float("-inf")) < self.threshold - DEEP_BUFFER * k
-            )
-            for m in matches
-        ]
-        foreign = any(m is not None and m.name not in (None, who) for m in matches)
-        return (
-            foreign
-            or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
-            or _sustained(deep, DEEP_BAD_RUN)
-        )
+    def _bad_run(self, matches: list, who: str, k: float, short: bool = False) -> bool:
+        return _continuity_bad(self, matches, who, k, short)
 
-    def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
+    def windows_ok(
+        self, matches: list[Match], label: str | None = None, short: bool = False
+    ) -> bool:
         """Speaker-continuity check over short windows of one accepted turn.
+
+        `short` (a turn under `CONTINUITY_MIN_S`): too few windows to judge a doubtful run, so
+        only two consecutive windows naming another enrolled speaker, or two under the
+        floor (the long rule's: threshold - buffer or turn median - drop), reject.
 
         A window is bad if the owner is not its best candidate or it dips well below the turn's
         typical owner score. Isolated bad windows are noise (0.5 s windows of one speaker are
         unreliable, D-015); `window_bad_run` consecutive ones mean someone else spoke.
         """
-        return not self._bad_run(matches, self.owner, self.score_scale)
+        return not self._bad_run(matches, self.owner, self.score_scale, short)
 
 
 UNKNOWN_LABEL = "Unknown"
+
+
+def _run(flags: list[bool], need: int) -> bool:
+    run = 0
+    for f in flags:
+        run = run + 1 if f else 0
+        if run >= need:
+            return True
+    return False
+
+
+def _continuity_bad(self, matches: list, who: str, k: float, short: bool) -> bool:
+    """Windows (None = pause) are bad if `who` is not best or scores under the floor."""
+    scores = [m.scores.get(who, float("-inf")) for m in matches if m is not None]
+    if not scores:
+        return False
+    floor = max(
+        self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
+    )
+    bad = [
+        None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
+        for m in matches
+    ]
+    # clearly someone else (not best, far under the threshold): needs a shorter run than `bad`
+    deep = [
+        None
+        if m is None
+        else (m.best != who and m.scores.get(who, float("-inf")) < self.threshold - DEEP_BUFFER * k)
+        for m in matches
+    ]
+    foreign = any(m is not None and m.name not in (None, who) for m in matches)
+    if short:  # a lone odd window proves little: two foreign / under-floor in a row
+        others = [m is not None and m.name not in (None, who) for m in matches]
+        need = getattr(self, "short_foreign_run", 2)
+        low = [
+            m is not None and m.scores.get(who, float("-inf")) < floor for m in matches
+        ]  # same floor as `bad`, no rival needed (owner-only enrollment)
+        return _run(others, need) or _run(low, 2)
+    return (
+        foreign
+        or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+        or _sustained(deep, DEEP_BAD_RUN)
+    )
 
 
 def _sustained(flags: list[bool | None], need: int) -> bool:
@@ -141,6 +164,8 @@ def _sustained(flags: list[bool | None], need: int) -> bool:
 
 
 class CollaborationPolicy:
+    short_foreign_run = 1  # attribution: one named foreign window still rejects a short turn
+
     """Every enrolled speaker reaches the model, attributed by name.
 
     A turn matching nobody enrolled follows `unknown`: "drop" discards it, "label" forwards it
@@ -212,36 +237,12 @@ class CollaborationPolicy:
             return Decision(Verdict.ACCEPT, UNKNOWN_LABEL)
         return Decision(Verdict.REJECT)
 
-    def _bad_run(self, matches: list, who: str, k: float) -> bool:
-        """Windows (None = pause) are bad if `who` is not best or scores under the floor."""
-        scores = [m.scores.get(who, float("-inf")) for m in matches if m is not None]
-        if not scores:
-            return False
-        floor = max(
-            self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
-        )
-        bad = [
-            None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
-            for m in matches
-        ]
-        # clearly someone else (not best, far under the threshold): needs a shorter run than `bad`
-        deep = [
-            None
-            if m is None
-            else (
-                m.best != who
-                and m.scores.get(who, float("-inf")) < self.threshold - DEEP_BUFFER * k
-            )
-            for m in matches
-        ]
-        foreign = any(m is not None and m.name not in (None, who) for m in matches)
-        return (
-            foreign
-            or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
-            or _sustained(deep, DEEP_BAD_RUN)
-        )
+    def _bad_run(self, matches: list, who: str, k: float, short: bool = False) -> bool:
+        return _continuity_bad(self, matches, who, k, short)
 
-    def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
+    def windows_ok(
+        self, matches: list[Match], label: str | None = None, short: bool = False
+    ) -> bool:
         """Continuity over short windows of one accepted turn, against the turn's `label`.
 
         Enrolled label: like isolation, every window must best-match that speaker and not dip
@@ -252,4 +253,4 @@ class CollaborationPolicy:
         if label == UNKNOWN_LABEL:
             flags = [None if m is None else m.name in self.enrolled for m in matches]
             return not _sustained(flags, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
-        return not self._bad_run(matches, label, self.score_scale or 1.0)
+        return not self._bad_run(matches, label, self.score_scale or 1.0, short)

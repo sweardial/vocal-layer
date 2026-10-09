@@ -13,9 +13,11 @@ reports/windows-<embedder>.md. Like the pipeline, SileroVAD marks pauses: window
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+from scipy import signal
 
 from voiceroom.audio import SAMPLE_RATE
 from voiceroom.bench.run import enroll_speakers
@@ -24,16 +26,37 @@ from voiceroom.embedders import get_embedder
 from voiceroom.eval.conversations import split_utterances
 from voiceroom.eval.corpus import LibriSpeechCorpus
 from voiceroom.matcher import Matcher
-from voiceroom.pipeline import HOP_FRAMES, MIN_VOICED, WIN_FRAMES, _window
+from voiceroom.pipeline import HOP_FRAMES, MIN_VOICED, WIN_FRAMES, _window, is_short_turn
 from voiceroom.policy import IsolationPolicy
 from voiceroom.vad import DEFAULT_MODEL, FRAME_SIZE, SileroVAD
 
 DROPS = (0.02, 0.03, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.3, 0.4, 1.0)
 BUFFERS = [0.1, 0.2, 0.3, 0.4, 10.0]  # 10: no absolute floor (best-candidate check only)
 INTERJECT_S = (0.5, 1.0, 2.0)
+SHORT_TAIL_S = (0.5, 0.75)  # tail after ~1 s of owner speech (turn < CONTINUITY_MIN_S)
 EDGE_S = 1.0  # owner speech kept on each side of an interjection
 TURN_S = (3.0, 6.0)  # turn length range (cropped from a single utterance)
 N_ENROLL_UTTS = 5
+
+
+class NarrowbandCorpus:
+    """Corpus view with every utterance band-limited to 300-3400 Hz (phone-like), enrollment too."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self._sos = signal.butter(6, [300, 3400], "bandpass", fs=SAMPLE_RATE, output="sos")
+
+    def speakers(self) -> list[str]:
+        return self.inner.speakers()
+
+    def utterances(self, speaker: str) -> list:
+        return [
+            replace(u, _load=lambda u=u: self._filter(u.load()))
+            for u in self.inner.utterances(speaker)
+        ]
+
+    def _filter(self, a: np.ndarray) -> np.ndarray:
+        return signal.sosfilt(self._sos, a).astype(np.float32)
 
 
 def _window_starts(n: int, win: int, hop: int) -> list[int]:
@@ -68,6 +91,11 @@ def window_matches(audio: np.ndarray, matcher: Matcher, win: int, hop: int) -> l
     ]
 
 
+def _scored(audio, matcher, win, hop):
+    """(matches, short) as the pipeline would pick the continuity rule for this turn."""
+    return window_matches(audio, matcher, win, hop), is_short_turn(len(audio) // FRAME_SIZE)
+
+
 def _speech(pool, rng, seconds: float) -> np.ndarray:
     """`seconds` cropped from one utterance of `pool` (one recording, as a real turn is)."""
     n = int(seconds * SAMPLE_RATE)
@@ -79,20 +107,23 @@ def _speech(pool, rng, seconds: float) -> np.ndarray:
     return a[start : start + n].copy()
 
 
-def collect(corpus, emb, n_trials: int, seed: int, win: int, hop: int) -> dict:
+def collect(
+    corpus, emb, n_trials: int, seed: int, win: int, hop: int, turn_s=TURN_S, n_enroll=N_ENROLL_UTTS
+) -> dict:
     """Window matches per case: owner turns and interjection turns by length / interloper kind."""
     rng = np.random.default_rng([seed, 28])
     spks = corpus.speakers()
     res = {"owner": []} | {(j, k): [] for j in INTERJECT_S for k in ("enrolled", "stranger")}
+    res |= {("short", j, k): [] for j in SHORT_TAIL_S for k in ("enrolled", "stranger")}
     for t in range(n_trials):
         pick = [spks[i] for i in rng.choice(len(spks), 4, replace=False)]
         enrolled, stranger = pick[:3], pick[3]
-        sigs = list(enroll_speakers(corpus, enrolled, emb, N_ENROLL_UTTS, 0).values())
+        sigs = list(enroll_speakers(corpus, enrolled, emb, n_enroll, 0).values())
         matcher = Matcher(sigs, threshold=threshold_for(emb.name), embedder=emb)
-        _, rest = split_utterances(corpus, pick, N_ENROLL_UTTS, 0)
+        _, rest = split_utterances(corpus, pick, n_enroll, 0)
         for _ in range(2):
-            owner_turn = _speech(rest[enrolled[0]], rng, rng.uniform(*TURN_S))
-            res["owner"].append((enrolled[0], window_matches(owner_turn, matcher, win, hop)))
+            owner_turn = _speech(rest[enrolled[0]], rng, rng.uniform(*turn_s))
+            res["owner"].append((enrolled[0], *_scored(owner_turn, matcher, win, hop)))
         for j in INTERJECT_S:
             for kind, who in (("enrolled", enrolled[1 + t % 2]), ("stranger", stranger)):
                 total = EDGE_S * 2 + j + rng.uniform(0, 1.5)
@@ -100,7 +131,18 @@ def collect(corpus, emb, n_trials: int, seed: int, win: int, hop: int) -> dict:
                 a = int((EDGE_S + rng.uniform(0, total - 2 * EDGE_S - j)) * SAMPLE_RATE)
                 b = a + int(j * SAMPLE_RATE)
                 turn[a:b] = _speech(rest[who], rng, j)
-                res[(j, kind)].append((enrolled[0], window_matches(turn, matcher, win, hop)))
+                res[(j, kind)].append((enrolled[0], *_scored(turn, matcher, win, hop)))
+        for j in SHORT_TAIL_S:  # owner ~1 s then an interloper tail at the end: a short turn
+            for kind, who in (("enrolled", enrolled[1 + t % 2]), ("stranger", stranger)):
+                turn = _speech(rest[enrolled[0]], rng, 1.0 + rng.uniform(0, 0.2))
+                res[("short", j, kind)].append(
+                    (
+                        enrolled[0],
+                        *_scored(
+                            np.concatenate([turn, _speech(rest[who], rng, j)]), matcher, win, hop
+                        ),
+                    )
+                )
         print(f"trial {t + 1}/{n_trials}", file=sys.stderr)
     return res
 
@@ -136,7 +178,16 @@ def render(emb_name: str, res: dict, threshold: float, buffers, header: dict, ru
                 row.append(pct(*_passes(cases, threshold, d, buf, run)))
             L.append(f"| {d:g} | {pct(n - ok, n)} | " + " | ".join(row) + " |")
         L.append("")
-    L += ["Read, clean LibriSpeech; interjections are spliced (no overlap).", ""]
+    L += ["## Short turns (owner ~1 s + interloper tail, `short` rule; leak = still passes)", ""]
+    L += ["| tail | enrolled | stranger |", "|---|---|---|"]
+    d = DROPS[-2]
+    for j in SHORT_TAIL_S:
+        row = [
+            pct(*_passes(res[("short", j, k)], threshold, d, buffers[0], run))
+            for k in ("enrolled", "stranger")
+        ]
+        L.append(f"| {j:g} s | " + " | ".join(row) + " |")
+    L += ["", "Read, clean LibriSpeech; interjections are spliced (no overlap).", ""]
     return "\n".join(L)
 
 
@@ -144,11 +195,11 @@ def _passes(
     cases: list, threshold: float, drop: float, buffer: float, run: int = 1
 ) -> tuple[int, int]:
     ok = 0
-    for owner, matches in cases:
+    for owner, matches, short in cases:
         pol = IsolationPolicy(
             owner, threshold, window_buffer=buffer, window_drop=drop, window_bad_run=run
         )
-        ok += pol.windows_ok(matches)
+        ok += pol.windows_ok(matches, short=short)
     return ok, len(cases)
 
 
@@ -166,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--win-frames", type=int, default=WIN_FRAMES, help="32 frames = 1 s; hop scales with it"
     )
+    p.add_argument(
+        "--turn-s", type=float, nargs=2, default=TURN_S, help="owner turn length range (s)"
+    )
+    p.add_argument("--narrowband", action="store_true", help="band-limit all speech to 300-3400 Hz")
     a = p.parse_args(argv)
     root = Path(a.data)
     if not (root / a.subset).is_dir():
@@ -174,23 +229,30 @@ def main(argv: list[str] | None = None) -> int:
     global _VAD
     _VAD = None if a.no_vad else SileroVAD(DEFAULT_MODEL)
     emb = get_embedder(a.embedder)
+    corpus = LibriSpeechCorpus(root, a.subset)
+    if a.narrowband:
+        corpus = NarrowbandCorpus(corpus)
     res = collect(
-        LibriSpeechCorpus(root, a.subset),
+        corpus,
         emb,
         a.trials,
         a.seed,
         a.win_frames,
         a.win_frames * HOP_FRAMES // WIN_FRAMES,
+        tuple(a.turn_s),
+        N_ENROLL_UTTS + 4 * a.narrowband,
     )
     header = {
         "dataset": f"LibriSpeech {a.subset}",
         "config": f"trials={a.trials} seed={a.seed} window={a.win_frames} frames "
-        f"hop={a.win_frames * HOP_FRAMES // WIN_FRAMES} bad_run={a.bad_run} vad={not a.no_vad}",
+        f"hop={a.win_frames * HOP_FRAMES // WIN_FRAMES} bad_run={a.bad_run} vad={not a.no_vad} "
+        f"turn_s={tuple(a.turn_s)} narrowband={a.narrowband}",
     }
     out = (
         Path(a.out)
         / f"windows-{emb.name}{'' if a.win_frames == WIN_FRAMES else f'-w{a.win_frames}'}"
-        f"{'' if a.bad_run == 1 else f'-run{a.bad_run}'}.md"
+        f"{'' if a.bad_run == 1 else f'-run{a.bad_run}'}"
+        f"{'-nb' if a.narrowband else ''}{'-short' if tuple(a.turn_s) != TURN_S else ''}.md"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(emb.name, res, threshold_for(emb.name), a.buffers, header, a.bad_run))

@@ -16,6 +16,8 @@ from typing import Protocol
 import numpy as np
 
 from .adapters.base import Provider
+from .audio import SAMPLE_RATE
+from .config import CONTINUITY_MIN_S
 from .matcher import Match, Matcher
 from .policy import CollaborationPolicy, Decision, IsolationPolicy, Verdict
 from .segmenter import IdentifyReady, Segmenter, SpeechStart, TurnEnd
@@ -282,6 +284,7 @@ class Pipeline:
         and require them to be homogeneous owner speech. Reuses windows scored while the turn
         was running; computes the rest here."""
         n = (len(ev.audio) - ev.tail_samples) // FRAME_SIZE  # frames up to the end of speech
+        short = is_short_turn(n)
         voiced = ev.voiced if ev.voiced is not None else np.ones(len(ev.audio) // FRAME_SIZE, bool)
         starts = list(range(0, n - WIN_FRAMES + 1, HOP_FRAMES))
         if n >= WIN_FRAMES and n - WIN_FRAMES not in starts:
@@ -305,7 +308,7 @@ class Pipeline:
             if m is None:
                 m = await self._identify(_window(ev.audio, voiced, st, width))
             matches.append(m)
-        return self.policy.windows_ok(matches, label)
+        return self.policy.windows_ok(matches, label, short=short)
 
     async def _barge_in(self) -> None:
         """An accepted turn confirmed while a reply is playing: flush the sink, stop the reply.
@@ -371,6 +374,11 @@ class Pipeline:
                 compute_s,
             )
         )
+
+
+def is_short_turn(n_frames: int) -> bool:
+    """Turns under CONTINUITY_MIN_S get the lenient `short` continuity rule."""
+    return n_frames * FRAME_SIZE < CONTINUITY_MIN_S * SAMPLE_RATE
 
 
 class _StageError(Exception):

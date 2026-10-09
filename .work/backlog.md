@@ -177,7 +177,11 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: Human live test (T-023): `data/cohort-wespeaker-resnet34.npz` is encrypted with the builder's key, so the demo fails elsewhere with "bad cohort file (cannot decrypt ...)". Store the cohort unencrypted (it holds no personal data) or build it per machine; then run the demo without `--no-cohort`.
   accept: cohort loads on a machine with a different key; smoke covers it; docs drop the `--no-cohort` note; `make check` green.
   depends: T-023
-- [ ] T-035 | M1 | Reduce owner false-reject on real mic audio
+- [x] T-035 | M1 | Reduce owner false-reject on real mic audio
   goal: Human live test (T-023, wespeaker, `--no-cohort`): 3 of 8 alice-identified turns were dropped (1.15 s, 1.5 s, 0.16 s turns), i.e. owner false-reject on real MacBook mic audio. Investigate and tune (threshold, continuity rule, short-turn handling); also re-test narrowband (phone) voices.
   accept: documented analysis and a change or decision in decisions.md; bench numbers not regressed; `make check` green.
   depends: T-023, T-034
+- [ ] T-036 | M1 | Log which continuity rule fired in the live demo
+  goal: T-035's cause of live owner false-reject is inferred. Make `voiceroom demo` (debug flag) log, per dropped turn, the rule that rejected it and the window scores (numbers only, no audio/embeddings); then a human reruns the demo.
+  accept: smoke proves the log line on a synthetic turn; `make check` green.
+  depends: T-035
