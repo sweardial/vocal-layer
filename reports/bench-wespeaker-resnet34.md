@@ -40,12 +40,12 @@ FAR/FRR at threshold 0.350.
 ### Latency (per-clip embedding)
 
 - segments: 960
-- p50: 76.9 ms
-- p95: 595.0 ms
+- p50: 85.3 ms
+- p95: 630.2 ms
 
 ### Real-time factor
 
-RTF 0.0599 (embedding time / audio duration; < 1 is faster than real time).
+RTF 0.0637 (embedding time / audio duration; < 1 is faster than real time).
 
 ## 10 dB SNR
 
@@ -81,9 +81,9 @@ FAR/FRR at threshold 0.350.
 ### Latency (per-clip embedding)
 
 - segments: 960
-- p50: 77.3 ms
-- p95: 597.2 ms
+- p50: 77.6 ms
+- p95: 593.6 ms
 
 ### Real-time factor
 
-RTF 0.0598 (embedding time / audio duration; < 1 is faster than real time).
+RTF 0.0596 (embedding time / audio duration; < 1 is faster than real time).

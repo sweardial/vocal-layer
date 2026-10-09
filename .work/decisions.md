@@ -56,3 +56,12 @@
 - What: raw `websockets` client (no `openai` SDK). Attribution item = `{"type":"message","role":"user","content":[{"type":"input_text","text":"[Speaker: X]"}]}` sent before append/commit. Audio is appended in 100 ms pcm16 LE 24 kHz chunks. Reply audio is emitted at 24 kHz (`AudioOut.sample_rate=24000`); the sink resamples. `conversation.item.truncate.audio_end_ms` is clamped to the received audio length.
 - Why: fewer dependencies, and the fake server speaks the same JSON. The input_text shape follows the GA client-events reference (developers.openai.com/api/reference/resources/realtime/client-events).
 - Alternatives: the `openai` SDK realtime client; a single item with `input_text` + `input_audio` (kept as a fallback if attribution turns out weak live).
+
+## D-011 (2026-10-08) Noise / short-utterance variants (T-024)
+- What: compared 8 scoring variants (`python -m voiceroom.bench.compare`, `reports/compare-wespeaker-resnet34.md`; wespeaker, LibriSpeech dev-clean, 30 convs, white noise at 10 dB). Each variant's threshold is calibrated on clean ≥ 1 s at FAR ≈ 1 %, then judged on 10 dB.
+- Numbers (10 dB, ≥ 1 s FRR at FAR ≤ ~1 %): baseline 18.2 %; k-means 3 centroids 16.7 %; top-3 chunks 17.8 %; AS-norm 16.5 %; noise-aug enrollment 14.0 % (FAR 1.6 %); **noise-aug + AS-norm 12.4 % (FAR 0.97 %)**; noise-aug + top-3 + AS-norm 21.1 %. < 1 s 10 dB FRR: 72.5 % baseline → 58.3 % best.
+- Wired behind config (all **off by default**): `ENROLL_NOISE_SNRS` (e.g. `(20, 10, 5)`; pink/brown noise, deliberately not the white noise used in testing) and `Matcher(cohort=...)` → AS-norm with `ASNORM_THRESHOLDS` (wespeaker 2.88).
+- Target NOT met: best 10 dB ≥ 1 s FRR 12.4 % vs < 5 %. Off by default because gain is moderate, AS-norm needs a cohort file (not yet shipped/loaded by the pipeline), and enrollment costs 4x embeds.
+- Caveats: one seed, ~720 ≥ 1 s targets so ±1-2 pt noise; cohort comes from the same corpus; noise is synthetic white.
+- AS-norm scores are z-units: the 2.88 threshold holds only for a bench-like cohort, and IsolationPolicy's cosine-scale early buffers must be rescaled before it is enabled in the pipeline (T-027).
+- Next: stronger levers are likely a noise-robust embedder (T-026 CAM++) or denoising front-end; re-check on live audio (T-023).

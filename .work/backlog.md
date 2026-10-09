@@ -81,7 +81,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/adapters/base.py` (`Provider`: `connect()`, `send_turn(audio16k, speaker_label|None)`, `interrupt()`, `audio_out` async iterator or callback, `close()`, with provider-agnostic types only) and `voiceroom/adapters/mock.py` (records turns, labels, and timestamps, and emits a short synthetic reply per turn); `scripts/smoke/smoke_mock_provider.py` sends 3 turns and checks the recorded order, labels, reply audio, and interrupt; a grep check in the smoke script asserts no provider-specific imports outside `adapters/`; `make check` green.
   depends: T-001
 
-- [!] T-016 | M1 | Build streaming pipeline with isolation policy
+- [ ] T-016 | M1 | Build streaming pipeline with isolation policy
   goal: Wire frames → VAD → segmenter → identify (early decision when confident) → isolation policy → provider, and measure end-of-speech → commit latency.
   accept: `voiceroom/policy.py` (`IsolationPolicy(owner)`) and `voiceroom/pipeline.py` (async `Pipeline(vad, segmenter, matcher, policy, provider).run(frame_source)`; decides early on `IdentifyReady` when score/margin is confident, otherwise at `TurnEnd`; drops rejected audio without forwarding it; records per-turn decision and latency); `scripts/smoke/smoke_e2e_isolation.py` runs 3 synthetic conversations (owner plus 2 others, toy embedder, EnergyVAD, MockProvider) and asserts zero non-owner turns committed, ≥ 90 % owner turns committed, and prints latency p50/p95; `make check` green.
   depends: T-004, T-014, T-015
@@ -122,7 +122,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   depends: T-018, T-022
   human: Run the macOS demo checklist with a real mic and speaker and an OpenAI API key, then report the results.
 
-- [ ] T-024 | M0 | Improve noisy and short-utterance accuracy
+- [x] T-024 | M0 | Improve noisy and short-utterance accuracy
   goal: Close the gap from D-009: at 10 dB SNR ≥ 1 s FRR is 16.9 % (target < 5 % at FAR < 2 %); < 1 s FRR is 18.8 % clean.
   accept: bench compares at least two of: multi-centroid signatures, score normalization (AS-norm/cohort), noise-augmented enrollment; the best is wired behind config and `reports/` shows ≥ 1 s 10 dB FRR and FAR; a new D-0xx records the result; `make bench` and `make check` green.
   depends: T-012
@@ -136,3 +136,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: Try 3D-Speaker CAM++ ONNX (verify licence/weights) against wespeaker on the bench.
   accept: a CAM++ embedder in the registry (or a decision recording why not) and its bench report; D-0xx updated if it beats wespeaker; `make bench` and `make check` green.
   depends: T-012
+- [ ] T-027 | M1 | Ship AS-norm cohort and decide noise-aug enrollment defaults
+  goal: D-011 variants are config-only; add a cohort file loader (data/, no audio) and set defaults after live-audio check (T-023).
+  accept: pipeline uses cohort when present, with threshold stored alongside the cohort and IsolationPolicy early buffers rescaled to the AS-norm scale; bench shows no clean regression; D-0xx updated.
+  depends: T-024

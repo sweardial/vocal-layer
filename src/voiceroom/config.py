@@ -17,6 +17,17 @@ MIN_SPEECH_S = 10.0
 WINDOW_S = 3.0
 HOP_S = 1.5
 
+# Noise-augmented enrollment: extra noisy copy of each window per SNR in dB (D-011). () = off.
+ENROLL_NOISE_SNRS: tuple[float, ...] = ()
+
+# AS-norm (D-011): needs a cohort of impostor embeddings passed to Matcher(cohort=...); normalized
+# scores live on a different scale (z-units), so they have their own thresholds (FAR ~1 %),
+# valid only for a bench-like cohort (~220 windows of other speakers, top-N 100); recalibrate
+# for any other cohort.
+# IsolationPolicy's early buffers are cosine-scale: rescale them before enabling AS-norm there.
+ASNORM_THRESHOLDS: dict[str, float] = {"wespeaker-resnet34": 2.88}
+ASNORM_TOP_N = 100
+
 # Early decision: shortest segment (s) the pipeline should classify. Consumed by the pipeline
 # (M1); shorter segments have ~19 % clean FRR at the threshold above.
 MIN_DECISION_S = 1.0
@@ -24,3 +35,10 @@ MIN_DECISION_S = 1.0
 
 def threshold_for(embedder_name: str) -> float:
     return THRESHOLDS.get(embedder_name, FALLBACK_THRESHOLD)
+
+
+def asnorm_threshold_for(embedder_name: str) -> float:
+    try:
+        return ASNORM_THRESHOLDS[embedder_name]
+    except KeyError:
+        raise ValueError(f"no AS-norm threshold calibrated for {embedder_name!r}") from None
