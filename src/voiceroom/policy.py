@@ -1,11 +1,12 @@
 """Speaker policies: map a match to accept / reject / undecided for a turn."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
 
-from .config import window_drop_for
+from .config import threshold_for, window_drop_for
 from .matcher import Match
 
 
@@ -64,7 +65,7 @@ class IsolationPolicy:
                 return Decision(Verdict.REJECT)
         return Decision(Verdict.UNDECIDED)
 
-    def windows_ok(self, matches: list[Match]) -> bool:
+    def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
         """Speaker-continuity check over short windows of one accepted turn.
 
         Every window must have the owner as its best candidate and must not dip well below the
@@ -79,3 +80,80 @@ class IsolationPolicy:
         return all(
             m.best == self.owner and s >= floor for m, s in zip(matches, scores, strict=True)
         )
+
+
+UNKNOWN_LABEL = "Unknown"
+
+
+class CollaborationPolicy:
+    """Every enrolled speaker reaches the model, attributed by name.
+
+    A turn matching nobody enrolled follows `unknown`: "drop" discards it, "label" forwards it
+    as "Unknown". An early match decides only an enrolled speaker, and only when the score
+    clears the threshold by `early_score_buffer` with a runner-up gap of `early_margin`;
+    everything else (including unknowns) waits for the full turn.
+    """
+
+    def __init__(
+        self,
+        enrolled: Iterable[str],
+        unknown: str = "drop",
+        threshold: float | None = None,
+        early_score_buffer: float = 0.1,
+        early_margin: float = 0.05,
+        window_buffer: float = 0.1,
+        window_drop: float | None = None,
+        embedder: str = "",
+    ):
+        if unknown not in ("drop", "label"):
+            raise ValueError("unknown must be 'drop' or 'label'")
+        self.enrolled = frozenset(enrolled)
+        if not self.enrolled or UNKNOWN_LABEL in self.enrolled:
+            raise ValueError(f"enrolled must be non-empty and not contain {UNKNOWN_LABEL!r}")
+        self.unknown = unknown
+        self.threshold = threshold  # None: bound to the matcher's by `bind_matcher`
+        self.early_score_buffer = early_score_buffer
+        self.early_margin = early_margin
+        self.window_buffer = window_buffer
+        self.window_drop = window_drop  # None: calibrated per embedder by `bind_matcher`
+        if embedder:
+            self.window_drop = window_drop_for(embedder) if window_drop is None else window_drop
+            self.threshold = threshold_for(embedder) if threshold is None else threshold
+
+    def bind_matcher(self, matcher) -> None:
+        """Fill unset threshold / window_drop from the matcher (called by the Pipeline)."""
+        if self.threshold is None:
+            self.threshold = matcher.threshold
+        if self.window_drop is None:
+            name = matcher.embedder.name if matcher.embedder is not None else ""
+            self.window_drop = window_drop_for(name)
+
+    def decide(self, match: Match, final: bool = True) -> Decision:
+        if match.name in self.enrolled:
+            if final or (
+                match.score >= self.threshold + self.early_score_buffer
+                and match.margin >= self.early_margin
+            ):
+                return Decision(Verdict.ACCEPT, match.name)
+            return Decision(Verdict.UNDECIDED)
+        if not final:
+            return Decision(Verdict.UNDECIDED)
+        if self.unknown == "label":
+            return Decision(Verdict.ACCEPT, UNKNOWN_LABEL)
+        return Decision(Verdict.REJECT)
+
+    def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
+        """Continuity over short windows of one accepted turn, against the turn's `label`.
+
+        Enrolled label: like isolation, every window must best-match that speaker and not dip
+        below the floor. "Unknown": no window may clearly match an enrolled speaker.
+        """
+        if label is None or not matches:
+            return True
+        if label == UNKNOWN_LABEL:
+            return all(m.name not in self.enrolled for m in matches)
+        scores = [m.scores.get(label, float("-inf")) for m in matches]
+        floor = max(
+            self.threshold - self.window_buffer, float(np.median(scores)) - self.window_drop
+        )
+        return all(m.best == label and s >= floor for m, s in zip(matches, scores, strict=True))

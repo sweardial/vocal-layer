@@ -16,7 +16,7 @@ import numpy as np
 
 from .adapters.base import Provider
 from .matcher import Match, Matcher
-from .policy import Decision, IsolationPolicy, Verdict
+from .policy import CollaborationPolicy, Decision, IsolationPolicy, Verdict
 from .segmenter import IdentifyReady, Segmenter, SpeechStart, TurnEnd
 from .vad import FRAME_SIZE, VAD
 
@@ -57,7 +57,7 @@ class Pipeline:
         vad: VAD,
         segmenter: Segmenter,
         matcher: Matcher,
-        policy: IsolationPolicy,
+        policy: IsolationPolicy | CollaborationPolicy,
         provider: Provider,
         max_pending: int = MAX_PENDING_TURNS,
         send_timeout_s: float = SEND_TIMEOUT_S,
@@ -93,6 +93,8 @@ class Pipeline:
         self.peak_inflight = 0
         self.vad, self.segmenter, self.matcher = vad, segmenter, matcher
         self.policy, self.provider = policy, provider
+        if isinstance(policy, CollaborationPolicy):
+            policy.bind_matcher(matcher)
         self.on_record = on_record
         self.records: deque[TurnRecord] = deque(maxlen=max_records)  # most recent run/turns
 
@@ -245,7 +247,10 @@ class Pipeline:
                 self._inflight -= 1
 
     async def _continuity_ok(
-        self, ev: TurnEnd, wins: "dict[int, asyncio.Task[Match] | None]"
+        self,
+        ev: TurnEnd,
+        wins: "dict[int, asyncio.Task[Match] | None]",
+        label: str | None = None,
     ) -> bool:
         """Score every voiced ~0.5 s window of the turn's speech (plus one anchored at the end)
         and require them to be homogeneous owner speech. Reuses windows scored while the turn
@@ -273,7 +278,7 @@ class Pipeline:
             if m is None:
                 m = await self._identify(_window(ev.audio, voiced, st, width))
             matches.append(m)
-        return self.policy.windows_ok(matches)
+        return self.policy.windows_ok(matches, label)
 
     async def _finish(
         self,
@@ -299,7 +304,9 @@ class Pipeline:
             match = await self._identify(ev.audio)
             decision = self.policy.decide(match, final=True)
         assert match is not None and decision is not None
-        if decision.verdict is Verdict.ACCEPT and not await self._continuity_ok(ev, wins):
+        if decision.verdict is Verdict.ACCEPT and not await self._continuity_ok(
+            ev, wins, decision.label
+        ):
             decision, was_early = Decision(Verdict.REJECT), False  # speaker change inside the turn
         if decision.verdict is Verdict.ACCEPT:
             try:

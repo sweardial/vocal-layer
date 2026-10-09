@@ -86,7 +86,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/policy.py` (`IsolationPolicy(owner)`) and `voiceroom/pipeline.py` (async `Pipeline(vad, segmenter, matcher, policy, provider).run(frame_source)`; decides early on `IdentifyReady` when score/margin is confident, otherwise at `TurnEnd`; drops rejected audio without forwarding it; records per-turn decision and latency); `scripts/smoke/smoke_e2e_isolation.py` runs 3 synthetic conversations (owner plus 2 others, toy embedder, EnergyVAD, MockProvider) and asserts zero non-owner turns committed, ≥ 90 % owner turns committed, and prints latency p50/p95; `make check` green.
   depends: T-004, T-014, T-015
 
-- [ ] T-017 | M1 | Add collaboration mode with speaker attribution
+- [x] T-017 | M1 | Add collaboration mode with speaker attribution
   goal: Forward all enrolled speakers with correct labels, and apply the unknown-speaker policy (drop or label "Unknown").
   accept: `CollaborationPolicy(enrolled, unknown="drop"|"label")` in `policy.py`, with the pipeline passing the label to `send_turn`; `scripts/smoke/smoke_e2e_collab.py` runs synthetic conversations with 3 enrolled speakers plus 1 unknown and asserts that every committed turn's label matches ground truth (≥ 95 %) and that unknown turns are dropped under "drop" and labeled "Unknown" under "label"; `make check` green.
   depends: T-016
@@ -144,3 +144,8 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: The pipeline's ~0.5 s window continuity check (`IsolationPolicy.windows_ok`; `WINDOW_DROPS`, `window_buffer`) uses provisional values for wespeaker/ecapa. Calibrate on LibriSpeech conversations with mid-turn speaker changes.
   accept: bench or script reports interior-interjection leak rate vs owner false-reject (turns >= 1 s) for wespeaker at candidate `window_drop` values; config values set from it and recorded in decisions.md; `make check` green.
   depends: T-016
+
+- [ ] T-028 | M1 | Collaboration: split turns on mid-turn speaker change instead of dropping
+  goal: When continuity fails in collaboration mode, split the turn at the change point and forward each part with its own label.
+  accept: smoke with A->B no-pause turn forwards both parts labeled correctly; `make check` green.
+  depends: T-017
