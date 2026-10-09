@@ -9,3 +9,6 @@
 - Added foreign-enrolled-speaker guard, all-scored-bad rule across pauses, standalone-safe run fallback (Collaboration Unknown branch); smoke covers all three (`smoke_windows_bench`).
 - Windows bench (`reports/windows-wespeaker-resnet34-run3.md`): FR 10 %, leak 0.5 s 42 %, 1 s 3.3 %, 2 s 0 %. Pipeline bench re-run: FR 4.3 % (1/23), FA 1.6 %, attribution 96.4 %.
 - Short-interjection leak cannot be eliminated with 0.5 s windows; trade-off written to `needs_human.md` (recommendation: keep + T-031).
+
+## Round 3
+- Human chose the shipped rule (needs_human answered). Recorded in D-015, README "Known limits" (sub-1 s interjections can leak in isolation), follow-up T-032 added. No code change; `make check` was green at round 2.

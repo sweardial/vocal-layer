@@ -30,3 +30,7 @@ Unit tests are **off** until you send `/tests on`. Until then agents prove chang
 
 ## Knobs
 `agentops/config.json`: milestones in scope, models, fix rounds, timeouts. Prompts live in `agentops/prompts/`, roles in `.claude/agents/`.
+
+## Known limits
+
+- Isolation mode: an interjection by another speaker shorter than ~1 s inside an accepted owner turn can reach the model (about 40 % of 0.5 s spliced interjections, 3 % at 1 s, 0 % at 2 s on clean LibriSpeech; D-015). Whole turns from other speakers are rejected. Cutting this needs longer windows or VAD-aware splitting (T-032).

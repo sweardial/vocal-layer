@@ -150,7 +150,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: smoke with A->B no-pause turn forwards both parts labeled correctly; `make check` green.
   depends: T-017
 
-- [!] T-029 | M1 | Calibrate pipeline continuity check and endpointing on real audio
+- [x] T-029 | M1 | Calibrate pipeline continuity check and endpointing on real audio
   goal: Owner FR is 86 % in `reports/pipeline-wespeaker-resnet34.md` (non-owner FA 0 %): the provisional `WINDOW_DROPS` (0.05) / `window_buffer` falsely reject real owner turns, and read-speech pauses split ~24 segments into ~39 turns (segmenter end_silence 0.4 s). Calibrate window_drop/window_buffer and segmenter settings on LibriSpeech, re-run `python -m voiceroom.bench.pipeline`, target owner FR < 5 % at FA < 2 %.
   accept: new pipeline report committed with owner FR (>= 1 s) < 5 % and attribution accuracy >= 90 %; smoke_pipeline_real uses config defaults (no window_drop override); `make check` green.
   depends: T-018
@@ -163,3 +163,8 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: D-014 shows 0.5 s wespeaker windows give 63-65 % owner FR at any `window_drop` (the absolute floor `threshold - window_buffer` and the `best == owner` test; buffer 0.2 already gives ~10 pt lower FR for wespeaker); 1 s windows (`python -m voiceroom.bench.windows --win-frames 32`) give ~22-28 % FR with ~0-2 % leak for >= 1 s interjections. Try WIN_FRAMES=32, require the owner best only on a fraction of windows, or compare to the turn mean score; recalibrate with the windows bench.
   accept: bench reports owner FR (turns >= 1 s) <= 10 % at leak <= 5 % for >= 1 s interior interjections, or documents why not; `make check` green.
   depends: T-028
+
+- [ ] T-032 | M1 | Cut sub-1 s interior-interjection leak without raising owner FR
+  goal: Per D-015 owner decision, the shipped continuity rule (3 bad windows in a row + foreign-enrolled guard, drop 0.4) leaks 42 % of 0.5 s interjections at owner FR 10 % (windows bench). Build 1 s windows and/or VAD-aware splitting (split a turn at pauses/speaker change) to reduce that leak.
+  accept: rerun `python -m voiceroom.bench.windows`: owner FR (turns >= 1 s) < 5 % and 0.5 s leak below 42 %, report committed; `make check` green.
+  depends: T-029

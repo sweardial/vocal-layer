@@ -1,0 +1,3 @@
+
+## 2026-10-09 12:51
+Go with the recommendation, options 1 + 3. Keep the shipped rule as the isolation-mode default: 3 bad windows in a row plus the foreign-enrolled guard, drop 0.4. Don't switch to the old strict rule, because a 65% owner false-rejection rate makes isolation unusable. Don't loosen to 4 in a row, because it leaks 83% of 0.5 s interjections. In T-031, build the 1 s windows or VAD-aware splitting to cut the sub-1 s leak. Record the tradeoff and these numbers in `decisions.md`, and state in the docs that interjections under 1 s can leak in isolation mode. Once T-031 is done, rerun the windows bench and check owner FR stays under 5% while the 0.5 s leak drops.
