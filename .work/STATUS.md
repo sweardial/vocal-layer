@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 14:44
-Phase: build · unit tests off · 33/36 done · est. API-equivalent cost $55.80
+Voice Room · 2026-10-09 14:49
+Phase: build · unit tests off · 34/36 done · est. API-equivalent cost $56.07
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -36,14 +36,15 @@ Phase: build · unit tests off · 33/36 done · est. API-equivalent cost $55.80
 ✅ T-030 Speed up pipeline bench enrollment and trim smoke total
 ✅ T-031 Rework continuity check: longer windows / softer rule to cut owner false-reject
 ✅ T-032 Cut sub-1 s interior-interjection leak without raising owner FR
-🔨 T-033 Add sounddevice as a dependency and fix demo docs
-⬜ T-034 Make the AS-norm cohort file portable across machines
+✅ T-033 Add sounddevice as a dependency and fix demo docs
+🔨 T-034 Make the AS-norm cohort file portable across machines
 ⬜ T-035 Reduce owner false-reject on real mic audio
 ```
 
 ## Recent commits
 
 ```
+f84d8cc T-033: Add sounddevice as a dependency and fix demo docs
 8ed8c35 T-023: Write macOS demo checklist and request human live test
 7ad6c79 T-032: Cut sub-1 s interior-interjection leak without raising owner FR
 92bc771 T-029: Calibrate pipeline continuity check and endpointing on real audio
@@ -53,5 +54,4 @@ c13c64e wip(T-029): blocked, awaiting human
 4b1105c T-028: Calibrate speaker-continuity window parameters on bench audio
 a23e229 T-027: Ship AS-norm cohort and decide noise-aug enrollment defaults
 63cdaff T-026: Evaluate CAM++ as an embedder candidate
-2c81488 T-025: Reduce p95 embedding latency
 ```

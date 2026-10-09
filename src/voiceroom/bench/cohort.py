@@ -19,7 +19,6 @@ from voiceroom.embedders import embed_batch, get_embedder
 from voiceroom.enroll import enroll
 from voiceroom.eval.conversations import split_utterances
 from voiceroom.eval.corpus import LibriSpeechCorpus
-from voiceroom.store import load_key
 
 PROBE_S = 2.0
 
@@ -84,11 +83,12 @@ def main(argv=None):
     emb = get_embedder(a.embedder)
     c, st = build(LibriSpeechCorpus(Path(a.data), a.subset), emb, a.seed, 5, a.target_far)
     path = default_path(emb.name)
-    c.save(path, load_key())
+    digest = c.save(path)
     lines = [
         f"# AS-norm cohort: {emb.name}",
         "",
-        f"file: `{path}` (embeddings only, encrypted with the signature-store key)",
+        f"file: `{path}` (embeddings only, plain npz, portable)",
+        f"sha256: `{digest}` (pin in config.COHORT_SHA256 before the demo will load it)",
         "",
     ]
     lines += [f"- {k}: {v:.4g}" if isinstance(v, float) else f"- {k}: {v}" for k, v in st.items()]

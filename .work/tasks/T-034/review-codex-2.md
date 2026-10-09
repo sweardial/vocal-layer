@@ -1,0 +1,2 @@
+VERDICT: PASS
+[MEDIUM] docs/demo-macos.md:17: The documented per-machine rebuild alternative omits registering the newly generated digest in config.COHORT_SHA256 → rebuilding with different corpus contents or platform-dependent embedding results produces a valid cohort whose digest differs from the builder's pin, so the subsequent documented demo exits with “bad cohort file” rather than running AS-norm → document the required trusted pin update after rebuilding, or provide a supported way to register a locally built cohort while retaining integrity verification.

@@ -125,7 +125,7 @@ if [ "$TWO" = 1 ]; then
 Do each line about 5 times if you can. Press Ctrl-C when finished.
 EOF
   pause "Press Enter to start the demo. "
-  run $UVR voiceroom demo --store "$STORE" --mode isolation --owner alice --provider openai --no-cohort
+  run $UVR voiceroom demo --store "$STORE" --mode isolation --owner alice --provider openai
   echo; echo "Answer from what you saw in the log lines above (speaker, forwarded/dropped)."
   ask "Isolation: how many times was Bob forwarded (out of ~5)?"
   ask "Isolation: how many times was Alice dropped (out of ~5)?"
@@ -144,7 +144,7 @@ EOF
 Press Ctrl-C when finished.
 EOF
   pause "Press Enter to start the demo. "
-  run $UVR voiceroom demo --store "$STORE" --mode collaboration --provider openai --no-cohort
+  run $UVR voiceroom demo --store "$STORE" --mode collaboration --provider openai
   yn "Was speaker attribution correct (steps 3 and 4)?" && note "Collaboration attribution correct: y" || note "Collaboration attribution correct: n"
 else
   say_ "Skipping isolation and collaboration (needs a second person). They stay unverified."

@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from cryptography.fernet import Fernet
 
 from voiceroom import synth
 from voiceroom.cohort import Cohort, estimate_score_scale, load_default
@@ -14,7 +13,6 @@ from voiceroom.matcher import Match, Matcher
 from voiceroom.policy import CollaborationPolicy, IsolationPolicy
 
 emb = get_embedder("toy")
-KEY = Fernet.generate_key()
 audio = synth.utterance(1, 24.0, seed=100)
 plain = enroll("a", audio, emb, ())
 aug = enroll("a", audio, emb, (20.0, 10.0))
@@ -66,9 +64,9 @@ scale = estimate_score_scale(cohort / np.linalg.norm(cohort, axis=1, keepdims=Tr
 assert scale > 1.0, scale  # cosine spread is < 1, so z-units per cosine > 1
 co = Cohort(cohort, emb.name, thr, 100, scale)
 with tempfile.TemporaryDirectory() as d:
-    assert load_default(emb.name, KEY, Path(d)) is None  # absent -> AS-norm stays off
-    co.save(Path(d) / f"cohort-{emb.name}.npz", KEY)
-    back = load_default(emb.name, KEY, Path(d))
+    assert load_default(emb.name, Path(d)) is None  # absent -> AS-norm stays off
+    dg = co.save(Path(d) / f"cohort-{emb.name}.npz")
+    back = load_default(emb.name, Path(d), dg)
 assert back is not None and np.allclose(back.embeddings, cohort, atol=1e-6)
 assert (back.threshold, back.score_scale) == (thr, scale)
 cm = Matcher(sigs, cohort=back)  # threshold comes from the cohort, not config

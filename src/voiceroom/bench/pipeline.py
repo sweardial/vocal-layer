@@ -31,7 +31,6 @@ from voiceroom.matcher import Matcher
 from voiceroom.pipeline import Pipeline, TurnRecord
 from voiceroom.policy import UNKNOWN_LABEL, CollaborationPolicy, IsolationPolicy, Verdict
 from voiceroom.segmenter import Segmenter
-from voiceroom.store import load_key
 from voiceroom.vad import DEFAULT_MODEL, FRAME_S, FRAME_SIZE, SileroVAD
 
 MIN_LATENCY_N = 20  # fewer samples than this do not support a latency verdict
@@ -321,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     global COHORT, EXCLUDE, JOBS
     JOBS = a.jobs
-    shipped = load_default(a.embedder, load_key())
+    shipped = load_default(a.embedder)
     if a.cohort and shipped is None:
         print(
             "bench.pipeline: no cohort file; run python -m voiceroom.bench.cohort", file=sys.stderr

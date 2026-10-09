@@ -236,9 +236,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         if args.owner not in names:
             raise CliError(f"owner {args.owner!r} is not enrolled (enrolled: {', '.join(names)})")
     try:
-        cohort = (
-            None if args.no_cohort else load_default(args.embedder, load_key(args.keyfile))
-        )  # AS-norm when shipped
+        cohort = None if args.no_cohort else load_default(args.embedder)  # AS-norm when shipped
     except (ValueError, KeyError, zipfile.BadZipFile) as exc:
         raise CliError(f"bad cohort file ({exc}); rebuild it or pass --no-cohort") from exc
     if cohort is not None:

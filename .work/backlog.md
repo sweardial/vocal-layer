@@ -173,7 +173,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: Human live test (T-023): `voiceroom enroll`/`demo` fail on a fresh Mac with "cannot record" because `sounddevice` is not a dependency. Add it (main dependency or an `audio` extra), update README and docs/demo-macos.md (remove the `uv run --with sounddevice` workaround note).
   accept: `uv sync` on a clean env provides sounddevice (import works); docs updated; `make check` green.
   depends: T-023
-- [ ] T-034 | M1 | Make the AS-norm cohort file portable across machines
+- [x] T-034 | M1 | Make the AS-norm cohort file portable across machines
   goal: Human live test (T-023): `data/cohort-wespeaker-resnet34.npz` is encrypted with the builder's key, so the demo fails elsewhere with "bad cohort file (cannot decrypt ...)". Store the cohort unencrypted (it holds no personal data) or build it per machine; then run the demo without `--no-cohort`.
   accept: cohort loads on a machine with a different key; smoke covers it; docs drop the `--no-cohort` note; `make check` green.
   depends: T-023

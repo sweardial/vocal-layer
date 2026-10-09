@@ -47,6 +47,13 @@ ENROLL_NOISE_SNRS: tuple[float, ...] = ()
 # Policies multiply their cosine-scale buffers by the matcher's score_scale.
 ASNORM_THRESHOLDS: dict[str, float] = {"wespeaker-resnet34": 2.88}
 ASNORM_TOP_N = 100
+# Trusted SHA-256 of each shipped cohort file (embeddings + its threshold/score_scale). The npz is
+# unencrypted and portable, so it is only loaded when its digest matches this pin (a tampered
+# threshold would otherwise silently weaken isolation). Rebuilding a cohort prints the new digest;
+# paste it here.
+COHORT_SHA256: dict[str, str] = {
+    "wespeaker-resnet34": "917e1246a5bb8e8a21dce0ad1699d08f3ec737c344bef724a2f58c0a2f3443be",
+}
 
 # Early decision: shortest segment (s) the pipeline should classify. Consumed by the pipeline
 # (M1); shorter segments have ~19 % clean FRR at the threshold above.

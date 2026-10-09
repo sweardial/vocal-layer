@@ -1,12 +1,10 @@
 """Smoke: encrypted cohort file -> AS-norm Matcher -> Pipeline (isolation + collaboration)."""
 
 import asyncio
-import stat
 import tempfile
 from pathlib import Path
 
 import numpy as np
-from cryptography.fernet import Fernet
 
 from voiceroom.adapters import MockProvider
 from voiceroom.audio import iter_frames
@@ -50,22 +48,35 @@ thr = (float(np.percentile(gen, 5)) + float(np.percentile(imp, 95))) / 2
 co = Cohort(vecs, emb.name, thr, 100, scale, tuple(other.speakers()))
 assert "array" not in repr(co) and "0." not in repr(co).split("threshold")[0], repr(co)
 
-key = Fernet.generate_key()
 with tempfile.TemporaryDirectory() as d:
     path = Path(d) / f"cohort-{emb.name}.npz"
-    co.save(path, key)
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    digest = co.save(path)
+    with np.load(path, allow_pickle=False) as z:  # plain npz: portable, no key (T-034)
+        assert set(z.files) >= {"embeddings", "threshold"}
+    old = Path(d) / "old.npz"
+    old.write_bytes(b"gAAAAB-fernet-token")  # legacy encrypted file -> clear error
     try:
-        np.load(path, allow_pickle=False)
-        raise SystemExit("cohort file is readable without the key")
+        Cohort.load(old, digest)
+        raise SystemExit("legacy encrypted file accepted")
     except ValueError:
         pass
+    loaded = load_default(emb.name, Path(d), digest)
+    # altered calibration (threshold -> 0) must be rejected by the pinned digest
+    with np.load(path, allow_pickle=False) as z:
+        fields = {k: z[k] for k in z.files}
+    fields["threshold"] = np.float64(0.0)
+    evil = Path(d) / "evil.npz"
+    np.savez(evil, **fields)
     try:
-        Cohort.load(path, Fernet.generate_key())
-        raise SystemExit("wrong key accepted")
+        Cohort.load(evil, digest)
+        raise SystemExit("tampered cohort accepted")
+    except ValueError as e:
+        assert "pinned digest" in str(e), e
+    try:
+        load_default(emb.name, Path(d))  # no pin for the toy embedder -> refuse
+        raise SystemExit("unpinned cohort accepted")
     except ValueError:
         pass
-    loaded = load_default(emb.name, key, Path(d))
 assert loaded is not None and loaded.speakers == co.speakers and loaded.threshold == thr
 
 

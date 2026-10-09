@@ -13,8 +13,8 @@ The live steps call the OpenAI Realtime API and cost a little money.
   them in the results rather than treating them as a bug.
 - `uv` (`brew install uv`) and Python 3.12 (`uv python install 3.12`).
 - `sounddevice` (PortAudio is bundled in the macOS wheel) is a normal project dependency; `uv sync` installs it.
-- The shipped cohort file (`data/cohort-*.npz`) only decrypts on the machine that built it (T-034);
-  until fixed, add `--no-cohort` to `demo`.
+- The AS-norm cohort file (`data/cohort-*.npz`) is a plain, key-free npz (embeddings only), so it
+  loads on any machine; `data/` is gitignored, so copy the file (its SHA-256 is pinned in `config.COHORT_SHA256`; a mismatching or unpinned file is refused) from the builder machine into `data/` or run `uv run python -m voiceroom.bench.cohort`; without it the demo falls back to cosine scoring (no "AS-norm cohort active" line). `--no-cohort` is optional (cosine scoring).
 - `scripts/live/run_macos_demo.sh` is a guided version of this checklist (`--demo-only` skips setup and enrollment).
 - Grant your terminal app microphone access (System Settings > Privacy & Security > Microphone).
   Without it, recordings are silent.
@@ -59,7 +59,7 @@ the store (encrypted signatures only).
 ## 3. Isolation demo (live OpenAI)
 
 ```bash
-uv run voiceroom demo --store "$VOICEROOM_STORE" --mode isolation --owner alice --provider openai --no-cohort
+uv run voiceroom demo --store "$VOICEROOM_STORE" --mode isolation --owner alice --provider openai
 ```
 
 Script (leave a ~1 s pause between lines; Alice wears headphones):
@@ -78,7 +78,7 @@ score, forwarded/dropped) and how long replies take to start.
 ## 4. Collaboration demo (live OpenAI)
 
 ```bash
-uv run voiceroom demo --store "$VOICEROOM_STORE" --mode collaboration --provider openai --no-cohort
+uv run voiceroom demo --store "$VOICEROOM_STORE" --mode collaboration --provider openai
 # optional second run: add --unknown label   (strangers get a generic label instead of being dropped)
 ```
 
