@@ -28,6 +28,7 @@ class TurnEnd:
     t_start: float  # first speech frame
     t_end: float  # end of last speech frame
     split: bool = False  # True if cut by max_turn_s; speech continues in the next turn
+    tail_samples: int = 0  # trailing non-speech samples at the end of `audio`
 
 
 Event = SpeechStart | IdentifyReady | TurnEnd
@@ -131,7 +132,10 @@ class Segmenter:
         first = self._start_idx - self._n_preroll()
         n = min(n_total, keep_to - first)
         audio = np.concatenate(self._frames[:n])
-        ev = TurnEnd(audio, self._start_idx * FRAME_S, (self._last_speech_idx + 1) * FRAME_S, split)
+        tail = max(0, first + n - (self._last_speech_idx + 1)) * FRAME_SIZE
+        ev = TurnEnd(
+            audio, self._start_idx * FRAME_S, (self._last_speech_idx + 1) * FRAME_S, split, tail
+        )
         self._active = False
         self._frames = []
         self._silence = self._speech = self._voiced = 0

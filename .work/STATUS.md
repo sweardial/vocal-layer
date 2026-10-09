@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 21:19
-Phase: build · unit tests off · 14/26 done · est. API-equivalent cost $7.72
+Voice Room · 2026-10-08 21:24
+Phase: build · unit tests off · 15/26 done · est. API-equivalent cost $8.22
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -17,8 +17,8 @@ Phase: build · unit tests off · 14/26 done · est. API-equivalent cost $7.72
 ✅ T-012 Choose embedder and threshold from bench results
 ✅ T-013 Add streaming VAD with Silero ONNX and energy fallback
 ✅ T-014 Implement segmenter with turn endpointing and early decision hooks
-🔨 T-015 Define provider adapter interface and MockProvider
-⬜ T-016 Build streaming pipeline with isolation policy
+✅ T-015 Define provider adapter interface and MockProvider
+🔨 T-016 Build streaming pipeline with isolation policy
 ⬜ T-017 Add collaboration mode with speaker attribution
 ⬜ T-018 Measure pipeline latency and isolation accuracy on real components
 ⬜ T-019 Implement OpenAI Realtime adapter against a local fake server
@@ -34,6 +34,7 @@ Phase: build · unit tests off · 14/26 done · est. API-equivalent cost $7.72
 ## Recent commits
 
 ```
+2d37406 T-015: Define provider adapter interface and MockProvider
 0be7718 T-014: Implement segmenter with turn endpointing and early decision hooks
 2c0366e T-013: Add streaming VAD with Silero ONNX and energy fallback
 a9735c7 T-012: Choose embedder and threshold from bench results
@@ -43,5 +44,4 @@ ce62fbb T-009: Add optional SpeechBrain ECAPA embedder
 fe3536a T-008: Build synthetic conversations with ground-truth segments
 17fab74 T-007: Add LibriSpeech download script and corpus index
 e4fa947 docs: HANDOFF.md for interactive sessions; point to it from CLAUDE.md
-6d86fcc T-006: Add model fetch script and WeSpeaker ONNX embedder
 ```
