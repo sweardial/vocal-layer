@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-08 23:50
-Phase: build · unit tests off · 19/29 done · est. API-equivalent cost $31.81
+Voice Room · 2026-10-09 01:06
+Phase: build · unit tests off · 20/31 done · est. API-equivalent cost $35.02
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -20,9 +20,9 @@ Phase: build · unit tests off · 19/29 done · est. API-equivalent cost $31.81
 ✅ T-015 Define provider adapter interface and MockProvider
 ✅ T-016 Build streaming pipeline with isolation policy
 ✅ T-017 Add collaboration mode with speaker attribution
-🔨 T-018 Measure pipeline latency and isolation accuracy on real components
+✅ T-018 Measure pipeline latency and isolation accuracy on real components
 ✅ T-019 Implement OpenAI Realtime adapter against a local fake server
-⬜ T-020 Add mic and speaker I/O with file-based stand-ins
+🔨 T-020 Add mic and speaker I/O with file-based stand-ins
 ⬜ T-021 Add voiceroom CLI for enroll, list, delete, and demo
 ⬜ T-022 Support barge-in: stop playback when accepted speaker talks
 ⬜ T-023 Write macOS demo checklist and request human live test
@@ -32,11 +32,14 @@ Phase: build · unit tests off · 19/29 done · est. API-equivalent cost $31.81
 ⬜ T-027 Ship AS-norm cohort and decide noise-aug enrollment defaults
 ⬜ T-028 Calibrate speaker-continuity window parameters on bench audio
 ⬜ T-028 Collaboration: split turns on mid-turn speaker change instead of dropping
+⬜ T-029 Calibrate pipeline continuity check and endpointing on real audio
+⬜ T-030 Speed up pipeline bench enrollment and trim smoke total
 ```
 
 ## Recent commits
 
 ```
+b86469e T-018: Measure pipeline latency and isolation accuracy on real components
 e0de87c T-017: Add collaboration mode with speaker attribution
 abeda34 T-016: Build streaming pipeline with isolation policy
 0c61345 T-024: Improve noisy and short-utterance accuracy
@@ -46,5 +49,4 @@ abeda34 T-016: Build streaming pipeline with isolation policy
 0be7718 T-014: Implement segmenter with turn endpointing and early decision hooks
 2c0366e T-013: Add streaming VAD with Silero ONNX and energy fallback
 a9735c7 T-012: Choose embedder and threshold from bench results
-3f0b28f T-011: Wire make bench to LibriSpeech for all embedders
 ```

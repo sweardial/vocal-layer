@@ -101,7 +101,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/adapters/openai_realtime.py` implementing `Provider` (the API key comes only from the env and is never logged; model configurable); the plan cites the current official docs for every event used; `scripts/smoke/fake_realtime_server.py` (localhost websockets server that records client events and replies with `response.output_audio.delta`/`response.done`); `scripts/smoke/smoke_openai_adapter.py` asserts `session.update` with `turn_detection` null, each committed turn is append…commit→response.create, the attribution item precedes audio in collaboration mode, no events are sent for dropped turns, audio deltas are decoded to the output stream, and interrupt sends `response.cancel`; `scripts/live/openai_realtime_check.py` (manual, not in make check) sends a wav turn and saves the reply to `data/out/`; `make check` green.
   depends: T-015
 
-- [ ] T-020 | M1 | Add mic and speaker I/O with file-based stand-ins
+- [x] T-020 | M1 | Add mic and speaker I/O with file-based stand-ins
   goal: Provide audio sources/sinks: sounddevice mic input and speaker output (lazy import), plus file source and wav sink for headless runs.
   accept: `voiceroom/io.py` (`MicSource` 16 kHz frames via sounddevice InputStream into an asyncio queue, `SpeakerSink` playing provider audio with resampling, `FileSource` with realtime or fast pacing, `WavSink`, `list_devices()` that degrades gracefully with no devices); `scripts/smoke/smoke_io.py` runs FileSource → pipeline (MockProvider) → WavSink on a synthetic conversation and checks the output wav exists and is non-empty, and checks `list_devices()` does not crash in the container; `make check` green.
   depends: T-016
