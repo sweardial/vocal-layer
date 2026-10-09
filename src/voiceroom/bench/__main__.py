@@ -7,6 +7,7 @@ from pathlib import Path
 
 from voiceroom.bench.report import write_report
 from voiceroom.bench.run import build_trials
+from voiceroom.config import THRESHOLDS as CONFIG_THRESHOLDS
 from voiceroom.embedders import get_embedder
 from voiceroom.eval.corpus import LibriSpeechCorpus, SynthCorpus
 
@@ -49,7 +50,9 @@ def main(argv: list[str] | None = None) -> int:
         "--snr", "--snr-db", type=float, nargs="*", default=None, dest="snr",
         help=f"noisy conditions in dB (default {DEFAULT_SNR:g}); a clean run is always included",
     )  # fmt: skip
-    p.add_argument("--threshold", type=float, default=None, help="default: clean EER threshold")
+    p.add_argument(
+        "--threshold", type=float, default=None, help="default: config threshold, else clean EER"
+    )
     a = p.parse_args(argv)
     snrs = [DEFAULT_SNR] if a.snr is None else a.snr
 
@@ -88,7 +91,9 @@ def main(argv: list[str] | None = None) -> int:
             "config": f"conversations={a.n_conv} speakers/conv={a.speakers} "
             f"turns={a.turns} enroll_utts={n_enroll} conditions={list(conds)}",
         }
-        path = write_report(a.out, emb.name, trials, header, a.threshold)
+        path = write_report(
+            a.out, emb.name, trials, header, a.threshold or CONFIG_THRESHOLDS.get(emb.name)
+        )
         print(f"{path} ({time.monotonic() - t0:.0f}s)")
     return 0
 

@@ -59,7 +59,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `make bench` (Makefile and `python -m voiceroom.bench` CLI with `--embedder`, `--corpus`, `--n-conversations`, `--snr`, `--seed`) exits with a clear message pointing to `fetch_data.py`/`fetch_models.py` when assets are missing, otherwise writes `reports/bench-wespeaker-resnet34.md` (and `reports/bench-ecapa-voxceleb.md` if the extra is installed) including clean and noisy (e.g. 10 dB SNR) results; it runs in the container and the reports are committed; bench runtime is noted in summary.md; `make check` green.
   depends: T-006, T-009, T-010
 
-- [ ] T-012 | M0 | Choose embedder and threshold from bench results
+- [x] T-012 | M0 | Choose embedder and threshold from bench results
   goal: Pick the default embedder, threshold, and enrollment/early-decision parameters from the bench and justify them against the SPEC targets.
   accept: a `.work/decisions.md` entry "D-0xx Embedder and threshold" citing numbers from `reports/bench-*.md` (EER, FAR/FRR at the chosen threshold vs targets FA < 2 % and FR < 5 % for ≥ 1 s, short-utterance results, p95 latency, RTF), with the chosen defaults set in `voiceroom/config.py` and read by matcher/enroll; if targets are missed, the entry states the gap and adds follow-up tasks (e.g. multi-centroid signatures, score norm, CAM++) at the end of the backlog; `make bench` and `make check` green.
   depends: T-011
@@ -121,3 +121,18 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `docs/demo-macos.md` covers: prerequisites (uv, Python 3.12, `OPENAI_API_KEY`); `uv sync`; `fetch_models.py`; `voiceroom enroll` ×2; `voiceroom demo --mode isolation --owner alice --provider openai` with a script of who says what and the expected outcome; the collaboration run; `scripts/live/openai_realtime_check.py`; headphones advice to avoid echo; what to report back. Write `.work/tasks/T-023/needs_human.md` with the checklist link and a short results form. `make check` green.
   depends: T-018, T-022
   human: Run the macOS demo checklist with a real mic and speaker and an OpenAI API key, then report the results.
+
+- [ ] T-024 | M0 | Improve noisy and short-utterance accuracy
+  goal: Close the gap from D-009: at 10 dB SNR ≥ 1 s FRR is 16.9 % (target < 5 % at FAR < 2 %); < 1 s FRR is 18.8 % clean.
+  accept: bench compares at least two of: multi-centroid signatures, score normalization (AS-norm/cohort), noise-augmented enrollment; the best is wired behind config and `reports/` shows ≥ 1 s 10 dB FRR and FAR; a new D-0xx records the result; `make bench` and `make check` green.
+  depends: T-012
+
+- [ ] T-025 | M0 | Reduce p95 embedding latency
+  goal: Per-clip embedding p95 is about 595 ms (p50 75 ms) for wespeaker; find the cause (long clips, fbank, onnx threads, first calls) and cut it.
+  accept: bench report shows p95 < 250 ms for the default embedder with no accuracy change (EER within 0.2 pt); `make bench` and `make check` green.
+  depends: T-012
+
+- [ ] T-026 | M0 | Evaluate CAM++ as an embedder candidate
+  goal: Try 3D-Speaker CAM++ ONNX (verify licence/weights) against wespeaker on the bench.
+  accept: a CAM++ embedder in the registry (or a decision recording why not) and its bench report; D-0xx updated if it beats wespeaker; `make bench` and `make check` green.
+  depends: T-012
