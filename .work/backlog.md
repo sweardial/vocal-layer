@@ -140,12 +140,12 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: D-011 variants are config-only; add a cohort file loader (data/, no audio) and set defaults after live-audio check (T-023).
   accept: pipeline uses cohort when present, with threshold stored alongside the cohort and IsolationPolicy early buffers rescaled to the AS-norm scale; bench shows no clean regression; D-0xx updated.
   depends: T-024
-- [ ] T-028 | M1 | Calibrate speaker-continuity window parameters on bench audio
+- [x] T-028 | M1 | Calibrate speaker-continuity window parameters on bench audio
   goal: The pipeline's ~0.5 s window continuity check (`IsolationPolicy.windows_ok`; `WINDOW_DROPS`, `window_buffer`) uses provisional values for wespeaker/ecapa. Calibrate on LibriSpeech conversations with mid-turn speaker changes.
   accept: bench or script reports interior-interjection leak rate vs owner false-reject (turns >= 1 s) for wespeaker at candidate `window_drop` values; config values set from it and recorded in decisions.md; `make check` green.
   depends: T-016
 
-- [ ] T-028 | M1 | Collaboration: split turns on mid-turn speaker change instead of dropping
+- [x] T-028 | M1 | Collaboration: split turns on mid-turn speaker change instead of dropping
   goal: When continuity fails in collaboration mode, split the turn at the change point and forward each part with its own label.
   accept: smoke with A->B no-pause turn forwards both parts labeled correctly; `make check` green.
   depends: T-017
@@ -159,3 +159,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: `python -m voiceroom.bench.pipeline` takes ~9 min for 4 conversations (enrollment per conversation + 2 realtime passes) and `make smoke` is ~66 s (thin margin after T-018). Cache signatures per speaker set, and shorten the slowest smokes (smoke_identify_isolation 15 s).
   accept: bench < 5 min, `make smoke` < 60 s with `make check` green.
   depends: T-018
+- [ ] T-031 | M1 | Rework continuity check: longer windows / softer rule to cut owner false-reject
+  goal: D-014 shows 0.5 s wespeaker windows give 63-65 % owner FR at any `window_drop` (the absolute floor `threshold - window_buffer` and the `best == owner` test; buffer 0.2 already gives ~10 pt lower FR for wespeaker); 1 s windows (`python -m voiceroom.bench.windows --win-frames 32`) give ~22-28 % FR with ~0-2 % leak for >= 1 s interjections. Try WIN_FRAMES=32, require the owner best only on a fraction of windows, or compare to the turn mean score; recalibrate with the windows bench.
+  accept: bench reports owner FR (turns >= 1 s) <= 10 % at leak <= 5 % for >= 1 s interior interjections, or documents why not; `make check` green.
+  depends: T-028

@@ -13,8 +13,9 @@ FALLBACK_THRESHOLD = 0.35  # unknown embedders (e.g. toy); calibrate before trus
 # Speaker-continuity windows (policy.windows_ok): max dip of a ~0.5 s window below the turn's
 # median owner score. Smaller = stricter. The toy value is calibrated by the e2e smoke (a
 # >= 0.15 s foreign burst dips >= 0.014, natural variation <= 0.01); the real-embedder values
-# are PROVISIONAL (not yet calibrated on bench audio) and unknown embedders get the strict one.
-WINDOW_DROPS: dict[str, float] = {"wespeaker-resnet34": 0.05, "ecapa-voxceleb": 0.05}
+# come from `python -m voiceroom.bench.windows` on ~0.5 s windows (D-014) and unknown embedders
+# get the strict toy one. At 0.5 s windows the check still falsely rejects many owner turns.
+WINDOW_DROPS: dict[str, float] = {"wespeaker-resnet34": 0.3, "ecapa-voxceleb": 0.3}
 FALLBACK_WINDOW_DROP = 0.012
 
 # Matcher: runner-up margin (0 = off; not needed at the bench operating point).
