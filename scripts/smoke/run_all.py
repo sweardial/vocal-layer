@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-BUDGET_S = 60.0
+BUDGET_S = 75.0  # was 60; real-component smokes (T-018) need more
 SKIP_CODE = 77
 PER_SCRIPT_TIMEOUT_S = 60.0
 

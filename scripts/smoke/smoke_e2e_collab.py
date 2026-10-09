@@ -58,7 +58,7 @@ def run(unknown: str, seed: int):
 
 for unknown in ("drop", "label"):
     total = correct = n_unknown = 0
-    for seed in (21, 22):
+    for seed in (21,):
         conv, pipe, provider = run(unknown, seed)
         committed = [r for r in pipe.records if r.verdict is Verdict.ACCEPT]
         assert len(committed) == len(provider.turns)

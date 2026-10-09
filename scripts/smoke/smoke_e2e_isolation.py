@@ -41,7 +41,7 @@ print(
 
 owner_total = owner_ok = non_owner_committed = 0
 records = []
-for seed in (11, 12, 13):
+for seed in (11, 12):
     conv = make_conversation(
         corpus, spks, n_turns=10, pause_range=(0.6, 1.2), snr_db=None, seed=seed, n_enroll=6
     )

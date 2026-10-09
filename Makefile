@@ -11,3 +11,4 @@ test:
 	uv run pytest -q -m "not live"
 bench:
 	uv run $(BENCH_UV) python -m voiceroom.bench --corpus librispeech --embedder all
+	uv run $(BENCH_UV) python -m voiceroom.bench.pipeline

@@ -91,7 +91,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `CollaborationPolicy(enrolled, unknown="drop"|"label")` in `policy.py`, with the pipeline passing the label to `send_turn`; `scripts/smoke/smoke_e2e_collab.py` runs synthetic conversations with 3 enrolled speakers plus 1 unknown and asserts that every committed turn's label matches ground truth (≥ 95 %) and that unknown turns are dropped under "drop" and labeled "Unknown" under "label"; `make check` green.
   depends: T-016
 
-- [ ] T-018 | M1 | Measure pipeline latency and isolation accuracy on real components
+- [x] T-018 | M1 | Measure pipeline latency and isolation accuracy on real components
   goal: Report end-of-speech→commit latency and isolation FA/FR for the full pipeline with SileroVAD, the chosen embedder, and LibriSpeech conversations.
   accept: `python -m voiceroom.bench.pipeline` (also run by `make bench`) streams N LibriSpeech conversations at simulated realtime pacing through the pipeline with MockProvider and writes `reports/pipeline-<embedder>.md` (latency p50/p95 vs the 700 ms target, owner FR by length bucket, non-owner FA, collaboration attribution accuracy); `scripts/smoke/smoke_pipeline_real.py` runs 1 short conversation in < 15 s or SKIPs if assets are absent; the report is committed and its key numbers are in summary.md; `make check` green.
   depends: T-012, T-017
@@ -149,3 +149,13 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: When continuity fails in collaboration mode, split the turn at the change point and forward each part with its own label.
   accept: smoke with A->B no-pause turn forwards both parts labeled correctly; `make check` green.
   depends: T-017
+
+- [ ] T-029 | M1 | Calibrate pipeline continuity check and endpointing on real audio
+  goal: Owner FR is 86 % in `reports/pipeline-wespeaker-resnet34.md` (non-owner FA 0 %): the provisional `WINDOW_DROPS` (0.05) / `window_buffer` falsely reject real owner turns, and read-speech pauses split ~24 segments into ~39 turns (segmenter end_silence 0.4 s). Calibrate window_drop/window_buffer and segmenter settings on LibriSpeech, re-run `python -m voiceroom.bench.pipeline`, target owner FR < 5 % at FA < 2 %.
+  accept: new pipeline report committed with owner FR (>= 1 s) < 5 % and attribution accuracy >= 90 %; smoke_pipeline_real uses config defaults (no window_drop override); `make check` green.
+  depends: T-018
+
+- [ ] T-030 | M1 | Speed up pipeline bench enrollment and trim smoke total
+  goal: `python -m voiceroom.bench.pipeline` takes ~9 min for 4 conversations (enrollment per conversation + 2 realtime passes) and `make smoke` is ~66 s (thin margin after T-018). Cache signatures per speaker set, and shorten the slowest smokes (smoke_identify_isolation 15 s).
+  accept: bench < 5 min, `make smoke` < 60 s with `make check` green.
+  depends: T-018

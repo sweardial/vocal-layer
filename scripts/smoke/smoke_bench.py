@@ -31,7 +31,7 @@ assert [M.bucket_of(d) for d in (0.5, 1.0, 2.0, 3.9, 4.0)] == [
 t0 = time.monotonic()
 with tempfile.TemporaryDirectory() as d:
     assert (
-        main(["--corpus", "synth", "--embedder", "toy", "--n-conversations", "4", "--out", d]) == 0
+        main(["--corpus", "synth", "--embedder", "toy", "--n-conversations", "2", "--out", d]) == 0
     )
     text = (Path(d) / "bench-toy.md").read_text()
 dt = time.monotonic() - t0

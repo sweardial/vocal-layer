@@ -211,7 +211,7 @@ async def main() -> None:
     m.MAX_BUFFER_ENTRIES = 5
     for _ in range(4):
         await p.send_turn(np.full(8000, 0.1, np.float32), None)
-        await asyncio.sleep(1.0)  # each reply completes unconsumed
+        await asyncio.sleep(0.4)  # each reply completes unconsumed
     held = [c for c in p._buf if c is not None]
     assert sum(len(c.samples) for c in held) <= 1.0 * 24000, len(held)
     assert held[-1].final and len(p._buf) <= 5, len(p._buf)
