@@ -200,7 +200,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: `voiceroom/pipeline.py` (or a new `voiceroom/source.py`) exposes `SourceProcessor(source_id, vad, segmenter, matcher, policy)` yielding decided turns (audio, label, decision, timings) without touching the provider. The existing `Pipeline.run` uses it and keeps its public signature. All existing smokes are unchanged and green. `python -m voiceroom.bench.pipeline` on the same seed reproduces owner FR, non-owner FA, attribution and commit p95 within ±1 turn / ±30 ms of `reports/pipeline-wespeaker-resnet34.md` (numbers in summary.md). `make check` green.
   depends: T-036
 
-- [ ] T-039 | M3 | Build multi-source room pipeline with serialized commits
+- [x] T-039 | M3 | Build multi-source room pipeline with serialized commits
   goal: Run N audio sources (added and removed at runtime) through their own SourceProcessors into one provider, committing accepted turns one at a time in end-of-speech order.
   accept: `voiceroom/room.py` has `RoomPipeline(provider, policy_factory, matcher, ...)` with `add_source(source_id, frames, claimed_identity=None)`, `remove_source(id)` (flushes the open turn), and `run()`. A commit queue guarantees that no provider `send_turn` calls interleave. Turns that end while another commit is in flight are queued and committed in order. Per-turn records include source_id and queue wait. `scripts/smoke/smoke_room_mux.py` streams 3 synthetic sources with interleaved and partly overlapping speech (toy embedder, EnergyVAD, MockProvider) and asserts every accepted turn is committed exactly once, in end-time order, with the right source, and that a source added mid-run and one removed mid-turn both behave. Smoke < 5 s. `make check` green.
   depends: T-038
@@ -260,3 +260,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: `docs/demo-room.md` and `scripts/live/run_room_demo.sh` give exact macOS steps: `uv sync --extra livekit`, `fetch_livekit.py` (or LiveKit Cloud), enroll, session create/invite/accept, `voiceroom room --transport livekit --provider openai --debug`, and how participants join (token via `voiceroom token`, and a browser client URL). They also include a script of who says what and the expected outcome per step (isolation, collaboration, impostor on a member's device, co-located bleed, barge-in, revoke) and a results form. `.work/tasks/T-050/needs_human.md` asks one question: local server on the Mac's LAN vs a LiveKit Cloud project (keys in `.env.agent`), with a recommendation. `make check` green.
   depends: T-048, T-049
   human: Choose LiveKit hosting (local LAN or Cloud keys), then run the multi-device checklist with real people and an OpenAI key, and report the results.
+- [ ] T-0xx | M3 | Room clock from capture time, not frame count
+  goal: A source that stops sending frames (muted) keeps its room clock behind; stamp frames with capture time so turn times and commit order stay right (needed by T-041 overlap/bleed test).
+  accept: smoke with a source that pauses frames mid-run; its later turns get correct room times.
+  depends: T-039

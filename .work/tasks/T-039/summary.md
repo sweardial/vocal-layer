@@ -1,0 +1,5 @@
+# T-039 summary
+- Added `src/voiceroom/room.py`: `RoomPipeline(provider, policy_factory, matcher, ...)` with `add_source` (before/during run, optional `t_offset`), `remove_source` (flushes open turn), `run()`/`finish()`. One SourceProcessor per source; decisions run concurrently; a single committer sends one turn at a time in room end-time order, and waits (max 1 s) for other live sources to pass the head turn's end + hangover so flushed/split turns can't jump ahead. `RoomTurnRecord` adds source_id, queue_wait_s, claimed_identity.
+- `scripts/smoke/smoke_room_mux.py`: 3 sources, overlapping speech, c added mid-run, b removed mid-turn, slow provider; asserts exactly-once, end-time order, sources/labels, no send overlap. 3.5 s.
+- Verified: `make check` green (27 scripts). Reviewer: 0 HIGH, 2 MEDIUM; ordering fixed (repro /tmp/t039/order.py now ordered), remove_source of ended source is a no-op. 
+- Known limit / follow-up added: room clock is frame-count based (muted source falls behind); the catch-up wait is bounded so it can't stall.
