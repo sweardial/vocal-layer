@@ -116,7 +116,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: The pipeline issues `provider.interrupt()` and flushes the sink once a turn by an accepted speaker is confirmed during playback (OpenAI adapter: `response.cancel` + `conversation.item.truncate` with played ms). Non-owner speech never interrupts in isolation mode. `scripts/smoke/smoke_bargein.py` uses MockProvider with a long reply and checks two cases: an owner turn mid-reply triggers exactly one interrupt and a sink flush, and a non-owner turn triggers none. `make check` green.
   depends: T-021
 
-- [ ] T-023 | M1 | Write macOS demo checklist and request human live test
+- [!] T-023 | M1 | Write macOS demo checklist and request human live test
   goal: Write exact macOS steps for the human to verify enrollment, isolation, collaboration, and the live OpenAI path with a real mic and speaker.
   accept: `docs/demo-macos.md` covers: prerequisites (uv, Python 3.12, `OPENAI_API_KEY`); `uv sync`; `fetch_models.py`; `voiceroom enroll` ×2; `voiceroom demo --mode isolation --owner alice --provider openai` with a script of who says what and the expected outcome; the collaboration run; `scripts/live/openai_realtime_check.py`; headphones advice to avoid echo; what to report back. Write `.work/tasks/T-023/needs_human.md` with the checklist link and a short results form. `make check` green.
   depends: T-018, T-022
