@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 05:27
-Phase: build · unit tests off · 28/32 done · est. API-equivalent cost $48.10
+Voice Room · 2026-10-09 06:16
+Phase: build · unit tests off · 29/32 done · est. API-equivalent cost $50.23
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -35,13 +35,14 @@ Phase: build · unit tests off · 28/32 done · est. API-equivalent cost $48.10
 ✅ T-028 Collaboration: split turns on mid-turn speaker change instead of dropping
 ⛔ T-029 Calibrate pipeline continuity check and endpointing on real audio
      ❓ # T-029: interior-interjection leak vs owner false-rejection
-🔨 T-030 Speed up pipeline bench enrollment and trim smoke total
-⬜ T-031 Rework continuity check: longer windows / softer rule to cut owner false-reject
+✅ T-030 Speed up pipeline bench enrollment and trim smoke total
+🔨 T-031 Rework continuity check: longer windows / softer rule to cut owner false-reject
 ```
 
 ## Recent commits
 
 ```
+805c435 T-030: Speed up pipeline bench enrollment and trim smoke total
 c13c64e wip(T-029): blocked, awaiting human
 4b1105c T-028: Calibrate speaker-continuity window parameters on bench audio
 a23e229 T-027: Ship AS-norm cohort and decide noise-aug enrollment defaults
@@ -51,5 +52,4 @@ a23e229 T-027: Ship AS-norm cohort and decide noise-aug enrollment defaults
 bb64f64 T-022: Support barge-in: stop playback when accepted speaker talks
 8cdd5af T-021: Add voiceroom CLI for enroll, list, delete, and demo
 6d435fc T-020: Add mic and speaker I/O with file-based stand-ins
-b86469e T-018: Measure pipeline latency and isolation accuracy on real components
 ```
