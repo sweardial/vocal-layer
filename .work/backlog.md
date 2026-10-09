@@ -76,7 +76,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/segmenter.py` (streaming; emits `SpeechStart`, `IdentifyReady(audio_so_far)` after a configurable min duration such as 1.0 s, `TurnEnd(audio, t_start, t_end)` after configurable trailing silence such as 400 ms, pre-roll padding, max-turn split); `scripts/smoke/smoke_segmenter.py` streams a synthetic conversation through EnergyVAD and the segmenter and asserts that turn boundaries are within ±300 ms of ground truth for ≥ 90 % of turns and that no turn spans two speakers when pauses are ≥ 600 ms; `make check` green.
   depends: T-013
 
-- [ ] T-015 | M1 | Define provider adapter interface and MockProvider
+- [x] T-015 | M1 | Define provider adapter interface and MockProvider
   goal: Define the provider-agnostic async adapter interface and a `MockProvider` that records what was committed.
   accept: `voiceroom/adapters/base.py` (`Provider`: `connect()`, `send_turn(audio16k, speaker_label|None)`, `interrupt()`, `audio_out` async iterator or callback, `close()`, with provider-agnostic types only) and `voiceroom/adapters/mock.py` (records turns, labels, and timestamps, and emits a short synthetic reply per turn); `scripts/smoke/smoke_mock_provider.py` sends 3 turns and checks the recorded order, labels, reply audio, and interrupt; a grep check in the smoke script asserts no provider-specific imports outside `adapters/`; `make check` green.
   depends: T-001
