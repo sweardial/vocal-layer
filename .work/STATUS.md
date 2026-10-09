@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 01:06
-Phase: build · unit tests off · 20/31 done · est. API-equivalent cost $35.02
+Voice Room · 2026-10-09 01:20
+Phase: build · unit tests off · 21/31 done · est. API-equivalent cost $36.61
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -22,8 +22,8 @@ Phase: build · unit tests off · 20/31 done · est. API-equivalent cost $35.02
 ✅ T-017 Add collaboration mode with speaker attribution
 ✅ T-018 Measure pipeline latency and isolation accuracy on real components
 ✅ T-019 Implement OpenAI Realtime adapter against a local fake server
-🔨 T-020 Add mic and speaker I/O with file-based stand-ins
-⬜ T-021 Add voiceroom CLI for enroll, list, delete, and demo
+✅ T-020 Add mic and speaker I/O with file-based stand-ins
+🔨 T-021 Add voiceroom CLI for enroll, list, delete, and demo
 ⬜ T-022 Support barge-in: stop playback when accepted speaker talks
 ⬜ T-023 Write macOS demo checklist and request human live test
 ✅ T-024 Improve noisy and short-utterance accuracy
@@ -39,6 +39,7 @@ Phase: build · unit tests off · 20/31 done · est. API-equivalent cost $35.02
 ## Recent commits
 
 ```
+6d435fc T-020: Add mic and speaker I/O with file-based stand-ins
 b86469e T-018: Measure pipeline latency and isolation accuracy on real components
 e0de87c T-017: Add collaboration mode with speaker attribution
 abeda34 T-016: Build streaming pipeline with isolation policy
@@ -48,5 +49,4 @@ abeda34 T-016: Build streaming pipeline with isolation policy
 2d37406 T-015: Define provider adapter interface and MockProvider
 0be7718 T-014: Implement segmenter with turn endpointing and early decision hooks
 2c0366e T-013: Add streaming VAD with Silero ONNX and energy fallback
-a9735c7 T-012: Choose embedder and threshold from bench results
 ```

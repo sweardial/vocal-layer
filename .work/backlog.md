@@ -106,7 +106,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: `voiceroom/io.py` (`MicSource` 16 kHz frames via sounddevice InputStream into an asyncio queue, `SpeakerSink` playing provider audio with resampling, `FileSource` with realtime or fast pacing, `WavSink`, `list_devices()` that degrades gracefully with no devices); `scripts/smoke/smoke_io.py` runs FileSource → pipeline (MockProvider) → WavSink on a synthetic conversation and checks the output wav exists and is non-empty, and checks `list_devices()` does not crash in the container; `make check` green.
   depends: T-016
 
-- [ ] T-021 | M1 | Add voiceroom CLI for enroll, list, delete, and demo
+- [x] T-021 | M1 | Add voiceroom CLI for enroll, list, delete, and demo
   goal: Expose `voiceroom enroll --name alice [--file x.wav]`, `voiceroom list`, `voiceroom delete`, and `voiceroom demo --mode isolation|collaboration --owner alice` per SPEC.
   accept: a `[project.scripts] voiceroom` entry point; `enroll` records ~25 s from the mic after an explicit consent prompt (or `--file`, with `--yes` for non-interactive consent) and saves to the encrypted store; `demo` takes `--provider openai|mock`, `--input file.wav` (otherwise mic), `--output-device`/`--out wav`, and `--embedder` (default from config), and prints one line per turn (speaker, decision, latency) without audio or embeddings; `scripts/smoke/smoke_cli.py` runs via subprocess with `--embedder toy` on synthetic wavs: enroll ×2 → list → demo isolation with mock on a conversation wav (asserts only owner turns are reported committed) → delete → list empty; `make check` green.
   depends: T-005, T-019, T-020

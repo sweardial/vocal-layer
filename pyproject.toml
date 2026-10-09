@@ -13,6 +13,9 @@ dependencies = [
     "websockets>=13,<16",
 ]
 
+[project.scripts]
+voiceroom = "voiceroom.cli:main"
+
 [project.optional-dependencies]
 # torch CPU build via [tool.uv] sources below. torch/torchaudio 2.8 is the last pair that
 # speechbrain imports cleanly (torchaudio >= 2.9 dropped list_audio_backends); see D-008.
