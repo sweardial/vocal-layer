@@ -155,7 +155,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: new pipeline report committed with owner FR (>= 1 s) < 5 % and attribution accuracy >= 90 %; smoke_pipeline_real uses config defaults (no window_drop override); `make check` green.
   depends: T-018
 
-- [ ] T-030 | M1 | Speed up pipeline bench enrollment and trim smoke total
+- [x] T-030 | M1 | Speed up pipeline bench enrollment and trim smoke total
   goal: `python -m voiceroom.bench.pipeline` takes ~9 min for 4 conversations (enrollment per conversation + 2 realtime passes) and `make smoke` is ~66 s (thin margin after T-018). Cache signatures per speaker set, and shorten the slowest smokes (smoke_identify_isolation 15 s).
   accept: bench < 5 min, `make smoke` < 60 s with `make check` green.
   depends: T-018

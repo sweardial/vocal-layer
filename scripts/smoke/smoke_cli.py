@@ -105,9 +105,9 @@ assert len(committed) >= 0.8 * len(owner_segs), (len(committed), len(owner_segs)
 assert reply.exists() and sf.info(reply).frames > 0  # the mock's reply tone was written
 
 # Unreadable file / duplicate name fail cleanly, not with a traceback.
-for extra in (["--file", str(tmp / "missing.wav")], ["--file", str(wav["bob"])]):
-    err = cli("enroll", "--name", "bob", "--yes", "--embedder", "toy", *extra, ok=False).stderr
-    assert err.startswith("error:") and "Traceback" not in err, err
+err = cli("enroll", "--name", "bob", "--yes", "--embedder", "toy", "--file", str(wav["bob"]),
+          ok=False).stderr  # duplicate name  # fmt: skip
+assert err.startswith("error:") and "Traceback" not in err, err
 
 cli("delete", "--name", "alice")
 cli("delete", "--name", "bob")

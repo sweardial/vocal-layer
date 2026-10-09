@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from voiceroom.bench.run import enroll_speakers
 from voiceroom.cohort import Cohort, load_default
 from voiceroom.config import MIN_DECISION_S, threshold_for, window_bad_run_for, window_drop_for
 from voiceroom.embedders import get_embedder
+from voiceroom.enroll import Signature
 from voiceroom.eval.conversations import Conversation, make_conversation
 from voiceroom.eval.corpus import LibriSpeechCorpus, Utterance
 from voiceroom.matcher import Matcher
@@ -79,6 +81,7 @@ def _covered(seg, rec: TurnRecord) -> bool:
 
 
 EXCLUDE: frozenset[str] = frozenset()  # cohort speakers: never drawn, so A/B runs share convs
+JOBS = 1  # set by --jobs, for the report
 COHORT: Cohort | None = None  # set by --cohort: AS-norm scoring with the shipped cohort
 
 
@@ -229,7 +232,9 @@ def render(emb_name: str, st: Stats, header: dict, wall_s: float) -> str:
         "",
         f"Notes: min decision length {MIN_DECISION_S:g} s, threshold {_threshold(emb_name):g}"
         f"{' (AS-norm cohort)' if COHORT else ''}, "
-        "identification on a thread, MockProvider (no network). Read, clean speech, no added "
+        "identification on a thread, "
+        f"{JOBS} passes run concurrently (latency includes that CPU contention; use --jobs 1 for "
+        "an uncontended figure), MockProvider (no network). Read, clean speech, no added "
         "noise; live audio will be harder (see T-023).",
         "",
     ]
@@ -245,34 +250,58 @@ def build(
     speed: float,
     window_drop=None,
     pause=(0.4, 1.0),
+    jobs: int = 1,
 ):
     """Stream n_conv conversations twice (isolation, collaboration); return Stats."""
     st = Stats()
     all_spk = [s for s in corpus.speakers() if s not in EXCLUDE]
     rng = np.random.default_rng([seed, 18])
+    sig_cache: dict[str, Signature] = {}  # enrollment is deterministic per speaker
+    jobs_list = []
     for c in range(n_conv):
         spks = [all_spk[i] for i in rng.choice(len(all_spk), N_ENROLLED + 1, replace=False)]
         enrolled, stranger = spks[:N_ENROLLED], spks[N_ENROLLED]
-        sigs = list(enroll_speakers(corpus, enrolled, emb, N_ENROLL_UTTS, 0).values())
+        todo = [s for s in enrolled if s not in sig_cache]
+        sig_cache.update(enroll_speakers(corpus, todo, emb, N_ENROLL_UTTS, 0))
+        sigs = [sig_cache[s] for s in enrolled]
         conv = make_conversation(
             corpus, spks, n_turns, pause_range=pause, seed=seed * 1000 + c, n_enroll=N_ENROLL_UTTS
         )
-        owner = enrolled[0]
+        jobs_list.append((conv, sigs, enrolled, stranger))
+
+    def isolation(conv, sigs, enrolled):
         pol = IsolationPolicy(
-            owner,
+            enrolled[0],
             _threshold(emb.name),
             window_drop=window_drop,
             embedder=emb.name,
             score_scale=COHORT.score_scale if COHORT else 1.0,
         )
-        recs, _ = stream(conv, sigs, emb, pol, speed)
-        score_isolation(st, conv, recs, owner)
+        return stream(conv, sigs, emb, pol, speed)
+
+    def collab(conv, sigs, enrolled):
         pol = CollaborationPolicy(
             enrolled, "label", _threshold(emb.name), window_drop=window_drop, embedder=emb.name
         )  # score_scale is bound from the matcher
-        recs, prov = stream(conv, sigs, emb, pol, speed)
-        score_collab(st, conv, recs, prov, stranger)
-        print(f"conversation {c + 1}/{n_conv} done", file=sys.stderr)
+        return stream(conv, sigs, emb, pol, speed)
+
+    # Passes are realtime-paced, so they overlap in threads (wall time ~ one pass per `jobs`).
+    with ThreadPoolExecutor(max(jobs, 1)) as pool:
+        futs = [
+            (pool.submit(isolation, cv, sg, en), pool.submit(collab, cv, sg, en))
+            for cv, sg, en, _ in jobs_list
+        ]
+        try:
+            for c, ((conv, _, enrolled, stranger), (f_iso, f_col)) in enumerate(
+                zip(jobs_list, futs, strict=True)
+            ):
+                score_isolation(st, conv, f_iso.result()[0], enrolled[0])
+                recs, prov = f_col.result()
+                score_collab(st, conv, recs, prov, stranger)
+                print(f"conversation {c + 1}/{n_conv} done", file=sys.stderr)
+        except BaseException:
+            pool.shutdown(cancel_futures=True)  # fail fast, not after every queued pass
+            raise
     return st
 
 
@@ -287,9 +316,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--turns", type=int, default=6)
     p.add_argument("--speed", type=float, default=1.0, help="pacing factor; 1 = realtime")
     p.add_argument("--window-drop", type=float, default=None, help="default: config value")
+    p.add_argument("--jobs", type=int, default=4, help="realtime passes run concurrently")
     p.add_argument("--cohort", action="store_true", help="AS-norm with data/cohort-<embedder>.npz")
     a = p.parse_args(argv)
-    global COHORT, EXCLUDE
+    global COHORT, EXCLUDE, JOBS
+    JOBS = a.jobs
     shipped = load_default(a.embedder, load_key())
     if a.cohort and shipped is None:
         print(
@@ -310,11 +341,12 @@ def main(argv: list[str] | None = None) -> int:
     corpus = LibriSpeechCorpus(root, a.subset)
     emb.embed(np.zeros(16000, np.float32))  # warm-up
     t0 = time.monotonic()
-    st = build(corpus, emb, a.conversations, a.turns, a.seed, a.speed, a.window_drop)
+    st = build(corpus, emb, a.conversations, a.turns, a.seed, a.speed, a.window_drop, jobs=a.jobs)
     header = {
         "dataset": f"LibriSpeech {a.subset}",
         "config": f"conversations={a.conversations} turns={a.turns} seed={a.seed} "
-        f"speed={a.speed:g}x window_drop={a.window_drop or window_drop_for(emb.name)} "
+        f"speed={a.speed:g}x jobs={a.jobs} "
+        f"window_drop={a.window_drop or window_drop_for(emb.name)} "
         f"window_bad_run={window_bad_run_for(emb.name)} "
         f"enroll_utts={N_ENROLL_UTTS} VAD=SileroVAD",
     }
