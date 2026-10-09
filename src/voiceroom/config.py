@@ -63,6 +63,16 @@ MIN_DECISION_S = 1.0
 # turns of 1.15 s and 1.5 s rejected) and the whole-turn score already covers a short turn.
 CONTINUITY_MIN_S = 2.0
 
+# Track-identity verification (policy.TrackPolicy "verified"): the claimed member's score only has
+# to clear the identification threshold minus this (cosine units; a 1:1 check has one hypothesis,
+# so a looser operating point than open-set ID). A mismatch needs a *confident* match to another
+# member, i.e. the full identification threshold. UNCALIBRATED: T-042 (track-identity bench)
+# will set both from owner-on-own-track FRR vs other-member / stranger FAR.
+VERIFY_THRESHOLD_RELAX = 0.05
+# What to do with a turn that confidently matches another member on a claimed track:
+# "relabel" (forward under the matched member's name) or "drop".
+TRACK_ON_MISMATCH = "drop"
+
 
 def threshold_for(embedder_name: str) -> float:
     return THRESHOLDS.get(embedder_name, FALLBACK_THRESHOLD)

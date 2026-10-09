@@ -10,6 +10,8 @@ from .config import (
     DEEP_BAD_RUN,
     DEEP_BUFFER,
     FALLBACK_WINDOW_BAD_RUN,
+    TRACK_ON_MISMATCH,
+    VERIFY_THRESHOLD_RELAX,
     threshold_for,
     window_bad_run_for,
     window_drop_for,
@@ -303,3 +305,119 @@ class CollaborationPolicy:
 
     def describe_windows(self, matches: list, label: str | None, short: bool, rule: str) -> str:
         return describe_windows(self, matches, label or "-", short, rule)
+
+
+class TrackPolicy:
+    """Identity policy for one room track (a participant's audio source).
+
+    `verified`: the track claims `claimed`; check the turn against that member's signature only
+    (1:1, accept at `verify_threshold`). A confident match to *another* member is a mismatch:
+    `on_mismatch` "relabel" forwards it under that member's name, "drop" discards it. Anything
+    else is unknown and follows `unknown` ("drop" / "label"). Continuity always uses the
+    lenient short-turn rule (per-person mics give short turns; the track already narrows who).
+
+    `shared` (one mic, several people): plain CollaborationPolicy over `members`.
+    """
+
+    def __init__(
+        self,
+        mode: str,
+        members: Iterable[str],
+        claimed: str | None = None,
+        unknown: str = "drop",
+        on_mismatch: str = TRACK_ON_MISMATCH,
+        threshold: float | None = None,
+        verify_threshold: float | None = None,
+        early_score_buffer: float = 0.1,
+        early_margin: float = 0.05,
+        embedder: str = "",
+        **kw,
+    ):
+        if mode not in ("verified", "shared"):
+            raise ValueError("mode must be 'verified' or 'shared'")
+        if on_mismatch not in ("relabel", "drop"):
+            raise ValueError("on_mismatch must be 'relabel' or 'drop'")
+        self.mode, self.members = mode, frozenset(members)
+        self.claimed, self.unknown, self.on_mismatch = claimed, unknown, on_mismatch
+        if mode == "verified" and claimed not in self.members:
+            raise ValueError("verified track needs a claimed identity that is a session member")
+        self._collab = CollaborationPolicy(
+            self.members, unknown, threshold, early_score_buffer, early_margin,
+            embedder=embedder, **kw,
+        )  # fmt: skip
+        self.verify_threshold = verify_threshold
+        self._relax_default = verify_threshold is None
+        self.early_score_buffer, self.early_margin = early_score_buffer, early_margin
+        if embedder and self._relax_default:
+            self.verify_threshold = threshold_for(embedder) - VERIFY_THRESHOLD_RELAX
+
+    # the collaboration policy owns thresholds / scale / window calibration
+    @property
+    def threshold(self):
+        return self._collab.threshold
+
+    @property
+    def score_scale(self):
+        return self._collab.score_scale or 1.0
+
+    def bind_matcher(self, matcher) -> None:
+        self._collab.bind_matcher(matcher)
+        if self._relax_default:  # relaxed from the (possibly AS-norm) identification threshold
+            self.verify_threshold = self.threshold - VERIFY_THRESHOLD_RELAX * self.score_scale
+
+    def decide(self, match: Match, final: bool = True) -> Decision:
+        if self.mode == "shared":
+            return self._collab.decide(match, final)
+        k = self.score_scale
+        mine = match.scores.get(self.claimed, float("-inf"))
+        other = match.name in self.members and match.name != self.claimed
+        if not final:  # early: only a clear, uncontested claimed match
+            clear = mine >= self.verify_threshold + self.early_score_buffer * k
+            if clear and match.best == self.claimed and match.margin >= self.early_margin * k:
+                return Decision(Verdict.ACCEPT, self.claimed)
+            return Decision(Verdict.UNDECIDED)
+        if other:
+            if self.on_mismatch == "relabel":
+                return Decision(Verdict.ACCEPT, match.name)
+            return Decision(Verdict.REJECT)
+        # confidently someone else who is not a session member (e.g. revoked): never the owner
+        confident_other = match.name is not None and match.name != self.claimed
+        if mine >= self.verify_threshold and not confident_other:
+            return Decision(Verdict.ACCEPT, self.claimed)
+        if self.unknown == "label":
+            return Decision(Verdict.ACCEPT, UNKNOWN_LABEL)
+        return Decision(Verdict.REJECT)
+
+    def windows_ok(
+        self, matches: list[Match], label: str | None = None, short: bool = False
+    ) -> bool:
+        return self.windows_rule(matches, label, short) is None
+
+    def windows_rule(
+        self, matches: list[Match], label: str | None = None, short: bool = False
+    ) -> str | None:
+        if self.mode == "shared":
+            return self._collab.windows_rule(matches, label, short)
+        if label is None or not matches:
+            return None
+        if label == UNKNOWN_LABEL:
+            return self._collab.windows_rule(matches, label, short)
+        # lenient variant regardless of turn length; the floor uses the verification threshold
+        return _continuity_rule(self._lenient(), matches, label, self.score_scale, True)
+
+    def _lenient(self):
+        return _Lenient(self)
+
+    def describe_windows(self, matches: list, label: str | None, short: bool, rule: str) -> str:
+        return describe_windows(self._lenient(), matches, label or "-", True, rule)
+
+
+class _Lenient:
+    """View of a TrackPolicy with the attributes `_continuity_rule` reads."""
+
+    short_foreign_run = 2
+
+    def __init__(self, p: TrackPolicy):
+        self.threshold = p.verify_threshold if p.mode == "verified" else p.threshold
+        self.window_buffer, self.window_drop = p._collab.window_buffer, p._collab.window_drop
+        self.window_bad_run, self.score_scale = p._collab.window_bad_run, p.score_scale

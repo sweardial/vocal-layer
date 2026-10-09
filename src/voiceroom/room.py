@@ -30,7 +30,7 @@ from .pipeline import (
     _StageError,
     _ThreadIdentifier,
 )
-from .policy import CollaborationPolicy, IsolationPolicy, Verdict
+from .policy import CollaborationPolicy, IsolationPolicy, TrackPolicy, Verdict
 from .segmenter import Segmenter
 from .vad import FRAME_SIZE, VAD, SileroVAD
 
@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 CATCH_UP_MAX_S = 1.0  # longest a commit waits for lagging sources before going ahead
 
-Policy = IsolationPolicy | CollaborationPolicy
+Policy = IsolationPolicy | CollaborationPolicy | TrackPolicy
 
 
 @dataclass(frozen=True)
