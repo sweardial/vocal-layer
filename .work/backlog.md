@@ -150,7 +150,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: smoke with A->B no-pause turn forwards both parts labeled correctly; `make check` green.
   depends: T-017
 
-- [ ] T-029 | M1 | Calibrate pipeline continuity check and endpointing on real audio
+- [!] T-029 | M1 | Calibrate pipeline continuity check and endpointing on real audio
   goal: Owner FR is 86 % in `reports/pipeline-wespeaker-resnet34.md` (non-owner FA 0 %): the provisional `WINDOW_DROPS` (0.05) / `window_buffer` falsely reject real owner turns, and read-speech pauses split ~24 segments into ~39 turns (segmenter end_silence 0.4 s). Calibrate window_drop/window_buffer and segmenter settings on LibriSpeech, re-run `python -m voiceroom.bench.pipeline`, target owner FR < 5 % at FA < 2 %.
   accept: new pipeline report committed with owner FR (>= 1 s) < 5 % and attribution accuracy >= 90 %; smoke_pipeline_real uses config defaults (no window_drop override); `make check` green.
   depends: T-018

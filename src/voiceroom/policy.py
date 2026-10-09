@@ -6,7 +6,7 @@ from enum import Enum
 
 import numpy as np
 
-from .config import threshold_for, window_drop_for
+from .config import FALLBACK_WINDOW_BAD_RUN, threshold_for, window_bad_run_for, window_drop_for
 from .matcher import Match
 
 
@@ -40,6 +40,7 @@ class IsolationPolicy:
         window_drop: float | None = None,
         embedder: str = "",
         score_scale: float = 1.0,
+        window_bad_run: int | None = None,
     ):
         self.owner = owner
         self.score_scale = score_scale  # cosine-scale buffers x this = buffers in matcher units
@@ -49,6 +50,9 @@ class IsolationPolicy:
         self.window_buffer = window_buffer  # a window may score this far below the threshold
         # ... and this far below the turn's median owner score (None: calibrated per embedder)
         self.window_drop = window_drop_for(embedder) if window_drop is None else window_drop
+        self.window_bad_run = (
+            window_bad_run_for(embedder) if window_bad_run is None else window_bad_run
+        )
 
     def bind_matcher(self, matcher) -> None:
         """Adopt the matcher's score scale (AS-norm z-units) for the cosine-scale buffers."""
@@ -72,25 +76,47 @@ class IsolationPolicy:
                 return Decision(Verdict.REJECT)
         return Decision(Verdict.UNDECIDED)
 
-    def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
-        """Speaker-continuity check over short windows of one accepted turn.
-
-        Every window must have the owner as its best candidate and must not dip well below the
-        turn's typical owner score; a dip means someone else spoke inside the turn.
-        """
-        scores = [m.scores.get(self.owner, float("-inf")) for m in matches]
+    def _bad_run(self, matches: list, who: str, k: float) -> bool:
+        """Windows (None = pause) are bad if `who` is not best or scores under the floor."""
+        scores = [m.scores.get(who, float("-inf")) for m in matches if m is not None]
         if not scores:
-            return True
-        k = self.score_scale
+            return False
         floor = max(
             self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
         )
-        return all(
-            m.best == self.owner and s >= floor for m, s in zip(matches, scores, strict=True)
-        )
+        bad = [
+            None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
+            for m in matches
+        ]
+        foreign = any(m is not None and m.name not in (None, who) for m in matches)
+        return foreign or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+
+    def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
+        """Speaker-continuity check over short windows of one accepted turn.
+
+        A window is bad if the owner is not its best candidate or it dips well below the turn's
+        typical owner score. Isolated bad windows are noise (0.5 s windows of one speaker are
+        unreliable, D-015); `window_bad_run` consecutive ones mean someone else spoke.
+        """
+        return not self._bad_run(matches, self.owner, self.score_scale)
 
 
 UNKNOWN_LABEL = "Unknown"
+
+
+def _sustained(flags: list[bool | None], need: int) -> bool:
+    """True if `need` consecutive flags are True, or every scored flag is.
+    None marks an unscored pause window and breaks a run."""
+    scored = [f for f in flags if f is not None]
+    if scored and all(scored):
+        return True  # nothing in the turn supports the speaker, pauses or not
+    need = max(1, need)
+    run = 0
+    for f in flags:
+        run = run + 1 if f else 0
+        if run >= need:
+            return True
+    return False
 
 
 class CollaborationPolicy:
@@ -113,6 +139,7 @@ class CollaborationPolicy:
         window_drop: float | None = None,
         embedder: str = "",
         score_scale: float | None = None,
+        window_bad_run: int | None = None,
     ):
         if unknown not in ("drop", "label"):
             raise ValueError("unknown must be 'drop' or 'label'")
@@ -125,10 +152,13 @@ class CollaborationPolicy:
         self.early_margin = early_margin
         self.window_buffer = window_buffer
         self.window_drop = window_drop  # None: calibrated per embedder by `bind_matcher`
+        self.window_bad_run = window_bad_run  # likewise
         self.score_scale = score_scale  # None: the matcher's, by `bind_matcher` (1.0 until then)
         self._default_threshold = threshold is None  # embedder default, not caller-chosen
         if embedder:
             self.window_drop = window_drop_for(embedder) if window_drop is None else window_drop
+            if window_bad_run is None:
+                self.window_bad_run = window_bad_run_for(embedder)
             self.threshold = threshold_for(embedder) if threshold is None else threshold
 
     def bind_matcher(self, matcher) -> None:
@@ -140,6 +170,11 @@ class CollaborationPolicy:
         if self.window_drop is None:
             name = matcher.embedder.name if matcher.embedder is not None else ""
             self.window_drop = window_drop_for(name)
+        if self.window_bad_run is None:
+            name = matcher.embedder.name if matcher.embedder is not None else ""
+            self.window_bad_run = window_bad_run_for(name)
+        if self.window_bad_run < 1:
+            raise ValueError("window_bad_run must be >= 1")
 
     def decide(self, match: Match, final: bool = True) -> Decision:
         k = self.score_scale or 1.0
@@ -156,6 +191,21 @@ class CollaborationPolicy:
             return Decision(Verdict.ACCEPT, UNKNOWN_LABEL)
         return Decision(Verdict.REJECT)
 
+    def _bad_run(self, matches: list, who: str, k: float) -> bool:
+        """Windows (None = pause) are bad if `who` is not best or scores under the floor."""
+        scores = [m.scores.get(who, float("-inf")) for m in matches if m is not None]
+        if not scores:
+            return False
+        floor = max(
+            self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
+        )
+        bad = [
+            None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
+            for m in matches
+        ]
+        foreign = any(m is not None and m.name not in (None, who) for m in matches)
+        return foreign or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+
     def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
         """Continuity over short windows of one accepted turn, against the turn's `label`.
 
@@ -165,10 +215,6 @@ class CollaborationPolicy:
         if label is None or not matches:
             return True
         if label == UNKNOWN_LABEL:
-            return all(m.name not in self.enrolled for m in matches)
-        scores = [m.scores.get(label, float("-inf")) for m in matches]
-        k = self.score_scale or 1.0
-        floor = max(
-            self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
-        )
-        return all(m.best == label and s >= floor for m, s in zip(matches, scores, strict=True))
+            flags = [None if m is None else m.name in self.enrolled for m in matches]
+            return not _sustained(flags, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+        return not self._bad_run(matches, label, self.score_scale or 1.0)

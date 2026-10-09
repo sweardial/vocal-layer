@@ -15,8 +15,13 @@ FALLBACK_THRESHOLD = 0.35  # unknown embedders (e.g. toy); calibrate before trus
 # >= 0.15 s foreign burst dips >= 0.014, natural variation <= 0.01); the real-embedder values
 # come from `python -m voiceroom.bench.windows` on ~0.5 s windows (D-014) and unknown embedders
 # get the strict toy one. At 0.5 s windows the check still falsely rejects many owner turns.
-WINDOW_DROPS: dict[str, float] = {"wespeaker-resnet34": 0.3, "ecapa-voxceleb": 0.3}
+WINDOW_DROPS: dict[str, float] = {"wespeaker-resnet34": 0.4, "ecapa-voxceleb": 0.3}
 FALLBACK_WINDOW_DROP = 0.012
+# Consecutive bad windows (hop 0.25 s) that reject a turn. 0.5 s windows of one speaker are too
+# noisy for "any bad window" (D-015); 3 in a row = a sustained span of >= ~1 s. Unknown
+# embedders (toy) keep the strict 1.
+WINDOW_BAD_RUNS: dict[str, int] = {"wespeaker-resnet34": 3}  # ecapa: not measured, strict
+FALLBACK_WINDOW_BAD_RUN = 1
 
 # Matcher: runner-up margin (0 = off; not needed at the bench operating point).
 MIN_MARGIN = 0.0
@@ -53,6 +58,10 @@ def asnorm_threshold_for(embedder_name: str) -> float:
         return ASNORM_THRESHOLDS[embedder_name]
     except KeyError:
         raise ValueError(f"no AS-norm threshold calibrated for {embedder_name!r}") from None
+
+
+def window_bad_run_for(embedder_name: str) -> int:
+    return WINDOW_BAD_RUNS.get(embedder_name, FALLBACK_WINDOW_BAD_RUN)
 
 
 def window_drop_for(embedder_name: str) -> float:

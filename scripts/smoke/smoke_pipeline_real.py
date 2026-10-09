@@ -32,9 +32,7 @@ corpus = CappedCorpus(LibriSpeechCorpus(ROOT / "data/LibriSpeech", "dev-clean"),
 spks = corpus.speakers()[:2]
 sigs = list(enroll_speakers(corpus, spks, emb, 8, 0).values())
 conv = make_conversation(corpus, spks, 2, pause_range=(0.5, 0.8), seed=3, n_enroll=8)
-# Even the calibrated config window_drop (0.3, D-014) falsely rejects many real owner turns;
-# relaxed here so the smoke checks the pipeline mechanics.
-pol = IsolationPolicy(spks[1], threshold_for(emb.name), window_drop=0.3, embedder=emb.name)
+pol = IsolationPolicy(spks[1], threshold_for(emb.name), embedder=emb.name)  # config defaults
 recs, prov = stream(conv, sigs, emb, pol, 6.0)  # 6x realtime to fit the smoke budget
 st = Stats()
 score_isolation(st, conv, recs, spks[1])

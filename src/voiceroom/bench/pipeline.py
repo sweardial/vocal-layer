@@ -21,7 +21,7 @@ from voiceroom.adapters import MockProvider
 from voiceroom.audio import iter_frames
 from voiceroom.bench.run import enroll_speakers
 from voiceroom.cohort import Cohort, load_default
-from voiceroom.config import MIN_DECISION_S, threshold_for
+from voiceroom.config import MIN_DECISION_S, threshold_for, window_bad_run_for, window_drop_for
 from voiceroom.embedders import get_embedder
 from voiceroom.eval.conversations import Conversation, make_conversation
 from voiceroom.eval.corpus import LibriSpeechCorpus, Utterance
@@ -314,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
     header = {
         "dataset": f"LibriSpeech {a.subset}",
         "config": f"conversations={a.conversations} turns={a.turns} seed={a.seed} "
-        f"speed={a.speed:g}x window_drop={a.window_drop or 'config'} "
+        f"speed={a.speed:g}x window_drop={a.window_drop or window_drop_for(emb.name)} "
+        f"window_bad_run={window_bad_run_for(emb.name)} "
         f"enroll_utts={N_ENROLL_UTTS} VAD=SileroVAD",
     }
     out = Path(a.out) / f"pipeline-{emb.name}{'-asnorm' if COHORT else ''}.md"

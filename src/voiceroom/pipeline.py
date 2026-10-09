@@ -293,6 +293,7 @@ class Pipeline:
         matches = []
         for st in starts:
             if width <= 0 or voiced[st : st + width].mean() < MIN_VOICED:
+                matches.append(None)  # pause: breaks a run of bad windows
                 continue
             t = wins.get(st)
             m = None

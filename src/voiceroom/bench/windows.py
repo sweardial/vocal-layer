@@ -26,7 +26,7 @@ from voiceroom.pipeline import WIN_FRAMES
 from voiceroom.policy import IsolationPolicy
 from voiceroom.vad import FRAME_SIZE
 
-DROPS = (0.02, 0.03, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.3, 1.0)
+DROPS = (0.02, 0.03, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.3, 0.4, 1.0)
 BUFFERS = [0.1, 0.2, 0.3, 0.4, 10.0]  # 10: no absolute floor (best-candidate check only)
 INTERJECT_S = (0.5, 1.0, 2.0)
 EDGE_S = 1.0  # owner speech kept on each side of an interjection
@@ -87,7 +87,7 @@ def collect(corpus, emb, n_trials: int, seed: int, win: int, hop: int) -> dict:
     return res
 
 
-def render(emb_name: str, res: dict, threshold: float, buffers, header: dict) -> str:
+def render(emb_name: str, res: dict, threshold: float, buffers, header: dict, run: int = 1) -> str:
     pct = lambda a, n: f"{100 * a / n:.1f}% ({a}/{n})" if n else "n/a"  # noqa: E731
     L = [f"# Window-continuity calibration: {emb_name}", ""]
     L += [f"- {k}: {v}" for k, v in header.items()]
@@ -105,27 +105,31 @@ def render(emb_name: str, res: dict, threshold: float, buffers, header: dict) ->
         L += ["| window_drop | owner FR | " + " | ".join(cols) + " |"]
         L += ["|---|---|" + "---|" * len(cols)]
         for d in DROPS:
-            ok, n = _passes(res["owner"], threshold, d, buf)
+            ok, n = _passes(res["owner"], threshold, d, buf, run)
             row, tot = [], [0, 0]
             for j in INTERJECT_S:
                 cases = res[(j, "enrolled")] + res[(j, "stranger")]
-                o, m = _passes(cases, threshold, d, buf)
+                o, m = _passes(cases, threshold, d, buf, run)
                 row.append(pct(o, m))
                 tot = [tot[0] + o, tot[1] + m]
             row.append(pct(*tot))
             for kind in ("enrolled", "stranger"):
                 cases = [m for j in INTERJECT_S for m in res[(j, kind)]]
-                row.append(pct(*_passes(cases, threshold, d, buf)))
+                row.append(pct(*_passes(cases, threshold, d, buf, run)))
             L.append(f"| {d:g} | {pct(n - ok, n)} | " + " | ".join(row) + " |")
         L.append("")
     L += ["Read, clean LibriSpeech; interjections are spliced (no overlap); VAD skipped.", ""]
     return "\n".join(L)
 
 
-def _passes(cases: list, threshold: float, drop: float, buffer: float) -> tuple[int, int]:
+def _passes(
+    cases: list, threshold: float, drop: float, buffer: float, run: int = 1
+) -> tuple[int, int]:
     ok = 0
     for owner, matches in cases:
-        pol = IsolationPolicy(owner, threshold, window_buffer=buffer, window_drop=drop)
+        pol = IsolationPolicy(
+            owner, threshold, window_buffer=buffer, window_drop=drop, window_bad_run=run
+        )
         ok += pol.windows_ok(matches)
     return ok, len(cases)
 
@@ -138,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default="reports")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--trials", type=int, default=30)
+    p.add_argument("--bad-run", type=int, default=1, help="consecutive bad windows that reject")
     p.add_argument("--buffers", type=float, nargs="+", default=BUFFERS)
     p.add_argument("--win-frames", type=int, default=WIN_FRAMES, help="32 frames = 1 s")
     a = p.parse_args(argv)
@@ -152,14 +157,15 @@ def main(argv: list[str] | None = None) -> int:
     header = {
         "dataset": f"LibriSpeech {a.subset}",
         "config": f"trials={a.trials} seed={a.seed} window={a.win_frames} frames "
-        f"hop={a.win_frames // 2}",
+        f"hop={a.win_frames // 2} bad_run={a.bad_run}",
     }
     out = (
         Path(a.out)
-        / f"windows-{emb.name}{'' if a.win_frames == WIN_FRAMES else f'-w{a.win_frames}'}.md"
+        / f"windows-{emb.name}{'' if a.win_frames == WIN_FRAMES else f'-w{a.win_frames}'}"
+        f"{'' if a.bad_run == 1 else f'-run{a.bad_run}'}.md"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(emb.name, res, threshold_for(emb.name), a.buffers, header))
+    out.write_text(render(emb.name, res, threshold_for(emb.name), a.buffers, header, a.bad_run))
     print(out)
     return 0
 
