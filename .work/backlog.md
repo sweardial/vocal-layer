@@ -164,7 +164,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   accept: bench reports owner FR (turns >= 1 s) <= 10 % at leak <= 5 % for >= 1 s interior interjections, or documents why not; `make check` green.
   depends: T-028
 
-- [ ] T-032 | M1 | Cut sub-1 s interior-interjection leak without raising owner FR
+- [x] T-032 | M1 | Cut sub-1 s interior-interjection leak without raising owner FR
   goal: Per D-015 owner decision, the shipped continuity rule (3 bad windows in a row + foreign-enrolled guard, drop 0.4) leaks 42 % of 0.5 s interjections at owner FR 10 % (windows bench). Build 1 s windows and/or VAD-aware splitting (split a turn at pauses/speaker change) to reduce that leak.
   accept: rerun `python -m voiceroom.bench.windows`: owner FR (turns >= 1 s) < 5 % and 0.5 s leak below 42 %, report committed; `make check` green.
   depends: T-029

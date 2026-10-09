@@ -6,7 +6,9 @@ Builds owner turns (>= 1 s of back-to-back owner utterances) and the same turns 
 span replaced by another speaker (an interjection with 1 s of owner speech on each side), scores
 the pipeline's ~0.5 s windows with a real embedder, and sweeps `window_drop`. Reports owner
 false-reject (turns >= 1 s) against interior-interjection leak rate. Writes
-reports/windows-<embedder>.md. VAD is skipped (all frames count as voiced).
+reports/windows-<embedder>.md. Like the pipeline, SileroVAD marks pauses: windows under
+`MIN_VOICED` speech are unscored (break a run) and scored windows embed speech frames only.
+`--no-vad` counts every frame as voiced (the pre-T-032 bench).
 """
 
 import argparse
@@ -22,9 +24,9 @@ from voiceroom.embedders import get_embedder
 from voiceroom.eval.conversations import split_utterances
 from voiceroom.eval.corpus import LibriSpeechCorpus
 from voiceroom.matcher import Matcher
-from voiceroom.pipeline import WIN_FRAMES
+from voiceroom.pipeline import HOP_FRAMES, MIN_VOICED, WIN_FRAMES, _window
 from voiceroom.policy import IsolationPolicy
-from voiceroom.vad import FRAME_SIZE
+from voiceroom.vad import DEFAULT_MODEL, FRAME_SIZE, SileroVAD
 
 DROPS = (0.02, 0.03, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.3, 0.4, 1.0)
 BUFFERS = [0.1, 0.2, 0.3, 0.4, 10.0]  # 10: no absolute floor (best-candidate check only)
@@ -41,11 +43,27 @@ def _window_starts(n: int, win: int, hop: int) -> list[int]:
     return starts
 
 
-def window_matches(audio: np.ndarray, matcher: Matcher, win: int, hop: int) -> list:
-    """Matches for the windows the pipeline scores over a turn (same starts and width)."""
+_VAD: SileroVAD | None = None  # set by main(); None: every frame counts as voiced
+
+
+def voiced_mask(audio: np.ndarray) -> np.ndarray:
     n = len(audio) // FRAME_SIZE
+    if _VAD is None:
+        return np.ones(n, bool)
+    _VAD.reset()
+    frames = audio[: n * FRAME_SIZE].reshape(n, FRAME_SIZE)
+    return np.array([_VAD.process(f) >= 0.5 for f in frames], bool)
+
+
+def window_matches(audio: np.ndarray, matcher: Matcher, win: int, hop: int) -> list:
+    """Matches for the windows the pipeline scores over a turn (same starts and width);
+    None for a pause window."""
+    n = len(audio) // FRAME_SIZE
+    voiced = voiced_mask(audio)
     return [
-        matcher.identify(audio[s * FRAME_SIZE : (s + win) * FRAME_SIZE])
+        matcher.identify(_window(audio, voiced, s, win))
+        if voiced[s : s + win].mean() >= MIN_VOICED
+        else None
         for s in _window_starts(n, win, hop)
     ]
 
@@ -118,7 +136,7 @@ def render(emb_name: str, res: dict, threshold: float, buffers, header: dict, ru
                 row.append(pct(*_passes(cases, threshold, d, buf, run)))
             L.append(f"| {d:g} | {pct(n - ok, n)} | " + " | ".join(row) + " |")
         L.append("")
-    L += ["Read, clean LibriSpeech; interjections are spliced (no overlap); VAD skipped.", ""]
+    L += ["Read, clean LibriSpeech; interjections are spliced (no overlap).", ""]
     return "\n".join(L)
 
 
@@ -143,21 +161,31 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--trials", type=int, default=30)
     p.add_argument("--bad-run", type=int, default=1, help="consecutive bad windows that reject")
+    p.add_argument("--no-vad", action="store_true", help="count every frame as voiced")
     p.add_argument("--buffers", type=float, nargs="+", default=BUFFERS)
-    p.add_argument("--win-frames", type=int, default=WIN_FRAMES, help="32 frames = 1 s")
+    p.add_argument(
+        "--win-frames", type=int, default=WIN_FRAMES, help="32 frames = 1 s; hop scales with it"
+    )
     a = p.parse_args(argv)
     root = Path(a.data)
     if not (root / a.subset).is_dir():
         print("bench.windows: need data/LibriSpeech (scripts/fetch_data.py)", file=sys.stderr)
         return 2
+    global _VAD
+    _VAD = None if a.no_vad else SileroVAD(DEFAULT_MODEL)
     emb = get_embedder(a.embedder)
     res = collect(
-        LibriSpeechCorpus(root, a.subset), emb, a.trials, a.seed, a.win_frames, a.win_frames // 2
+        LibriSpeechCorpus(root, a.subset),
+        emb,
+        a.trials,
+        a.seed,
+        a.win_frames,
+        a.win_frames * HOP_FRAMES // WIN_FRAMES,
     )
     header = {
         "dataset": f"LibriSpeech {a.subset}",
         "config": f"trials={a.trials} seed={a.seed} window={a.win_frames} frames "
-        f"hop={a.win_frames // 2} bad_run={a.bad_run}",
+        f"hop={a.win_frames * HOP_FRAMES // WIN_FRAMES} bad_run={a.bad_run} vad={not a.no_vad}",
     }
     out = (
         Path(a.out)

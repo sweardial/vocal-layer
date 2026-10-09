@@ -22,6 +22,10 @@ FALLBACK_WINDOW_DROP = 0.012
 # embedders (toy) keep the strict 1.
 WINDOW_BAD_RUNS: dict[str, int] = {"wespeaker-resnet34": 3}  # ecapa: not measured, strict
 FALLBACK_WINDOW_BAD_RUN = 1
+# A "deep" window (owner not best and DEEP_BUFFER under the threshold) is clearly someone else,
+# so DEEP_BAD_RUN of them in a row reject, shorter than the general run (cuts short interjections).
+DEEP_BAD_RUN = 2
+DEEP_BUFFER = 0.2
 
 # Matcher: runner-up margin (0 = off; not needed at the bench operating point).
 MIN_MARGIN = 0.0

@@ -6,7 +6,14 @@ from enum import Enum
 
 import numpy as np
 
-from .config import FALLBACK_WINDOW_BAD_RUN, threshold_for, window_bad_run_for, window_drop_for
+from .config import (
+    DEEP_BAD_RUN,
+    DEEP_BUFFER,
+    FALLBACK_WINDOW_BAD_RUN,
+    threshold_for,
+    window_bad_run_for,
+    window_drop_for,
+)
 from .matcher import Match
 
 
@@ -88,8 +95,22 @@ class IsolationPolicy:
             None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
             for m in matches
         ]
+        # clearly someone else (not best, far under the threshold): needs a shorter run than `bad`
+        deep = [
+            None
+            if m is None
+            else (
+                m.best != who
+                and m.scores.get(who, float("-inf")) < self.threshold - DEEP_BUFFER * k
+            )
+            for m in matches
+        ]
         foreign = any(m is not None and m.name not in (None, who) for m in matches)
-        return foreign or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+        return (
+            foreign
+            or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+            or _sustained(deep, DEEP_BAD_RUN)
+        )
 
     def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
         """Speaker-continuity check over short windows of one accepted turn.
@@ -203,8 +224,22 @@ class CollaborationPolicy:
             None if m is None else (m.best != who or m.scores.get(who, float("-inf")) < floor)
             for m in matches
         ]
+        # clearly someone else (not best, far under the threshold): needs a shorter run than `bad`
+        deep = [
+            None
+            if m is None
+            else (
+                m.best != who
+                and m.scores.get(who, float("-inf")) < self.threshold - DEEP_BUFFER * k
+            )
+            for m in matches
+        ]
         foreign = any(m is not None and m.name not in (None, who) for m in matches)
-        return foreign or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+        return (
+            foreign
+            or _sustained(bad, self.window_bad_run or FALLBACK_WINDOW_BAD_RUN)
+            or _sustained(deep, DEEP_BAD_RUN)
+        )
 
     def windows_ok(self, matches: list[Match], label: str | None = None) -> bool:
         """Continuity over short windows of one accepted turn, against the turn's `label`.

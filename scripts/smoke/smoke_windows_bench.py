@@ -27,6 +27,9 @@ from voiceroom.policy import CollaborationPolicy  # noqa: E402
 
 col = CollaborationPolicy(["alice"], unknown="label", threshold=0.35, window_drop=0.3)
 assert col.windows_ok([bad], "Unknown")  # standalone, no bind_matcher
-assert pol.windows_ok([good, bad, bad, good]) and not pol.windows_ok([good, bad, bad, bad, good])
+mild = Match(None, 0.3, 0.0, "x", {"o": 0.3, "x": 0.31})  # bad, but not clearly someone else
+assert pol.windows_ok([good, mild, mild, good])
+assert not pol.windows_ok([good, mild, mild, mild, good])
+assert not pol.windows_ok([good, bad, bad, good]) and pol.windows_ok([good, bad, None, bad, good])
 assert W.main(["--data", tempfile.mkdtemp(), "--out", tempfile.mkdtemp()]) == 2
 print("windows bench ok")
