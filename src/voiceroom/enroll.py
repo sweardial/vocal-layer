@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from voiceroom.audio import SAMPLE_RATE
-from voiceroom.config import HOP_S, MIN_SPEECH_S, WINDOW_S
+from voiceroom.augment import add_noise
+from voiceroom.config import ENROLL_NOISE_SNRS, HOP_S, MIN_SPEECH_S, WINDOW_S
 from voiceroom.embedders import Embedder, embed_batch
 from voiceroom.embedders.base import l2_normalize
 
@@ -45,7 +46,16 @@ def speech_mask(audio: np.ndarray) -> np.ndarray:
     return (rms > 0.1 * ref) & (rms > 1e-3) & (flat < 0.1)
 
 
-def enroll(name: str, audio: np.ndarray, embedder: Embedder) -> Signature:
+def enroll(
+    name: str,
+    audio: np.ndarray,
+    embedder: Embedder,
+    noise_snrs: tuple[float, ...] | None = None,
+) -> Signature:
+    """`noise_snrs` (default config) adds a noisy copy of every window per SNR, alternating
+    pink/brown noise, so the centroid and chunks also cover noisy conditions."""
+    if noise_snrs is None:
+        noise_snrs = ENROLL_NOISE_SNRS
     audio = np.asarray(audio, np.float32)
     if audio.ndim != 1:
         raise EnrollmentError("audio must be 1-D mono 16 kHz float32")
@@ -61,6 +71,12 @@ def enroll(name: str, audio: np.ndarray, embedder: Embedder) -> Signature:
             clips.append(w)
     if not clips:
         raise EnrollmentError("no usable speech windows")
+    rng = np.random.default_rng(0)
+    clips += [
+        add_noise(w, snr, rng, "pink" if i % 2 == 0 else "brown")
+        for snr in noise_snrs
+        for i, w in enumerate(clips[: len(clips)])
+    ]
     chunks = embed_batch(embedder, clips).astype(np.float32)
     centroid = l2_normalize(chunks.mean(axis=0))
     return Signature(name, embedder.name, centroid, chunks, speech_s)

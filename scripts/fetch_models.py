@@ -1,6 +1,6 @@
 """Download pinned model files into models/ (idempotent, sha256-verified).
 
-uv run python scripts/fetch_models.py [--only wespeaker|silero|ecapa ...]
+uv run python scripts/fetch_models.py [--only wespeaker|silero|ecapa|campplus ...]
 """
 
 import argparse
@@ -22,6 +22,12 @@ MODELS = {
         "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/"
         f"{_WESPEAKER_REV}/voxceleb_resnet34_LM.onnx",
         "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068",
+    ),
+    "campplus": (
+        "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
+        "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+        "357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b",
     ),
     "silero": (
         "silero_vad.onnx",
@@ -52,6 +58,12 @@ voxceleb_resnet34_LM.onnx
 silero_vad.onnx
   Silero VAD, https://github.com/snakers4/silero-vad (tag {_SILERO_TAG}), MIT License,
   Copyright (c) Silero Team.
+
+3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx
+  3D-Speaker CAM++ (iic/speech_campplus_sv_en_voxceleb_16k), ONNX export by sherpa-onnx.
+  Source: https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models
+  Project: https://github.com/modelscope/3D-Speaker (Apache-2.0; ModelScope card: Apache-2.0).
+  The VoxCeleb training data has its own terms.
 
 ecapa_voxceleb_embedding_model.ckpt
   SpeechBrain ECAPA-TDNN speaker embedding weights (embedding_model.ckpt), trained on VoxCeleb.

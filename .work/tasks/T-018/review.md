@@ -1,0 +1,19 @@
+# Review T-018
+
+`make check` is green (lint OK, 19 smokes pass, 65.73 s total). Note: `.work/tasks/T-018/` has no `plan.md` or `summary.md`.
+
+[HIGH] src/voiceroom/bench/pipeline.py:160-171: the latency verdict ("p95 MEETS target") is computed only from `commit_latencies`. In the committed report that list has 1 sample (39 turns, 1 committed), so p50 = p95 = 491 ms is a single turn. → The report states the 700 ms acceptance target is met when there is effectively no data. Readers (T-022/T-023, the owner) will take the latency criterion as proven. → Print n next to every percentile. Return "INSUFFICIENT DATA" below a minimum n (for example 20). Alternatively, base the verdict on decision latency over all turns (commit or drop). That already has 39 samples, and identification is the same work either way.
+
+[MEDIUM] scripts/smoke/run_all.py:12: `BUDGET_S` was raised from 60 to 75. This contradicts `.work/POLICY.md` ("< 60 s total"), which the human set. Measured total is 65.7 s, and without the new 7.2 s smoke it would be about 58.6 s. → `make check` now passes while breaking the human-set smoke budget, and the gate no longer enforces the policy. The follow-up task records the overrun but does not authorize it. → Restore 60 s and make room: drop the separate enrollment in the smoke, run faster than 3x, or shorten smoke_identify_isolation (15 s). Otherwise write `needs_human.md` asking the owner to relax the policy.
+
+[MEDIUM] src/voiceroom/bench/pipeline.py:61-64,117-130: each committed turn is attributed only to the segment it overlaps most. Example: an owner segment, a pause of about 0.4 s (within `pause_range` and at the 0.4 s segmenter end_silence), then a short stranger interjection, merged into one committed turn. Only the owner segment counts as forwarded, and the stranger's audio sent to the model is not counted. → Non-owner FA (reported as 0/17) is biased low on exactly the leak case isolation is meant to stop. → Mark a segment as forwarded if any committed turn covers a meaningful part of it (for example >= 0.3 s or >= 50 % of the segment).
+
+[MEDIUM] .work/tasks/T-018/ (missing summary.md): the acceptance criteria require "its key numbers are in summary.md". The task directory is empty, and there is also no plan.md. → The task cannot be accepted as written, and the key numbers (FR 85.7 %, attribution 25 %, n=1 latency) are not where the harness and owner look. → Write summary.md with the numbers and their caveats, including the sample sizes.
+
+[LOW] src/voiceroom/bench/pipeline.py:133-142: the docstring says "the turn overlapping it most", but `got.setdefault` takes the first committed turn that maps to the segment. → If a segment is split into two committed turns and the first has the wrong label, the segment is counted wrong even when most of its audio had the right label. → Pick the committed turn with the largest overlap per segment, or fix the docstring.
+
+[LOW] scripts/smoke/smoke_pipeline_real.py:34: the smoke overrides `window_drop=0.3` and enrolls 8 utterances (the bench uses 5). → It passes while the shipped config rejects 86 % of owner segments, so it does not prove that the default configuration works. This is already tracked as a follow-up (T-0xx accept: "no window_drop override"). → Keep the follow-up blocking for M1.
+
+[LOW] Makefile:14: the new bench line uses plain `uv run`, without `$(BENCH_UV)`. According to the Makefile's own comment, plain `uv run` removes the ecapa/torch extra. → Each `make bench` removes torch and the next one reinstalls it, which is slow and may need network if the cache is cold. → Use `uv run $(BENCH_UV) python -m voiceroom.bench.pipeline`.
+
+No privacy or real-time issues found: nothing logs audio or embeddings, the report has no speaker IDs, pacing uses a monotonic schedule without drift, and identification runs on a thread.

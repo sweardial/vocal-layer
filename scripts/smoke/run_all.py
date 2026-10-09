@@ -4,12 +4,16 @@ A script exits 0 for PASS, 77 for SKIP, anything else is FAIL. Exits non-zero on
 failure or if the total time exceeds BUDGET_S.
 """
 
+import os
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-BUDGET_S = 60.0
+BUDGET_S = 60.0  # wall time; scripts run WORKERS at a time (they were ~83 s serially, T-030)
+CPUS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+WORKERS = max(2, min(4, CPUS // 2))  # many smokes are realtime-paced (sleep-bound)
 SKIP_CODE = 77
 PER_SCRIPT_TIMEOUT_S = 60.0
 
@@ -35,8 +39,9 @@ def main() -> int:
     scripts = sorted(Path(__file__).parent.glob("smoke_*.py"))
     total_start = time.monotonic()
     failed = 0
-    for path in scripts:
-        status, elapsed, tail = run(path)
+    with ThreadPoolExecutor(WORKERS) as pool:
+        results = list(pool.map(run, scripts))
+    for path, (status, elapsed, tail) in zip(scripts, results, strict=True):
         print(f"{status} {path.name} ({elapsed:.2f}s)")
         if status == "FAIL":
             failed += 1

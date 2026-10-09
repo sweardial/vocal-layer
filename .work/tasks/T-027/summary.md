@@ -1,0 +1,13 @@
+# T-027 summary
+- New `voiceroom.cohort.Cohort` (Fernet-encrypted npz, mode 0600; embeddings only + embedder, AS-norm threshold, top-N, score_scale, cohort speaker ids); `python -m voiceroom.bench.cohort` builds `data/cohort-wespeaker-resnet34.npz` (gitignored) and `reports/cohort-*.md` (threshold 3.90 at FAR 1.02 %, TAR 98.8 % on 20 held-out speakers; score_scale 11.6).
+- `Matcher(cohort=Cohort)` takes threshold/top-N from the file and exposes `score_scale`; Isolation/Collaboration policies scale early_score_buffer/early_margin/window_buffer/window_drop by it (Pipeline binds both). `voiceroom demo` uses the cohort when present (`--no-cohort` to skip; `--threshold` is rejected with a cohort since it is cosine-scale). `bench.pipeline --cohort` for the A/B (cohort speakers excluded from both runs).
+- Defaults: AS-norm is on by file presence only; `ENROLL_NOISE_SNRS` stays `()`. T-023 live check is still waiting on a human (`needs_human.md` there), so no default is flipped on synthetic evidence. D-013 written.
+- Verified: `make check` green (23 smokes, lint); `smoke_noise_robust.py` covers file round-trip, mismatch rejection, policy rescale. Pipeline A/B: at default settings the cosine baseline commits 0/24 in this bench (pre-existing; T-028), so I used `--window-drop 1.0` for a nonzero baseline: cosine 10 commits, owner FR 42.9 %, FA 0/17, collab 70.8 % vs AS-norm 9 commits, same FR/FA/collab (`reports/pipeline-wespeaker-resnet34-{,asnorm-}wd1.md`; 24 segments, so only no visible regression).
+- Review (2 HIGH, 4 MEDIUM, 3 LOW) fixed: lint, collab threshold in bench, cohort/bench speaker overlap, `--threshold` guard, leave-one-speaker-out scale, `windows_ok` None scale, CliError on bad cohort file. Not done: cohort path is relative to cwd (a stderr line says when it is active).
+
+## Fix round 2
+- HIGH cohort file unencrypted: now Fernet-encrypted/authenticated with the signature-store key (`load_key`), written 0600 via temp+replace; `load_default(embedder, key)`; wrong key -> ValueError -> CliError.
+- MEDIUM collab bench threshold: bench passes the cohort threshold; also `CollaborationPolicy.bind_matcher` now replaces an embedder-derived default threshold with the cohort matcher's, so the cosine default can't meet z-scores.
+- MEDIUM repr: `embeddings` is `field(repr=False)`.
+- MEDIUM smoke: new `smoke_e2e_cohort.py` (encrypted round-trip, 0600, wrong key, no-vector repr, then isolation + collaboration through Pipeline with MockProvider: owner commits, no non-owner commit, Unknown attribution, z-scale continuity floor).
+- Verified: `make check` green (24 smokes).

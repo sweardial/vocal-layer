@@ -11,7 +11,7 @@ from voiceroom.config import THRESHOLDS as CONFIG_THRESHOLDS
 from voiceroom.embedders import get_embedder
 from voiceroom.eval.corpus import LibriSpeechCorpus, SynthCorpus
 
-REAL_EMBEDDERS = ("wespeaker-resnet34", "ecapa-voxceleb")
+REAL_EMBEDDERS = ("wespeaker-resnet34", "ecapa-voxceleb", "campplus-en-voxceleb")
 DEFAULT_SNR = 10.0
 
 
@@ -25,8 +25,8 @@ def _load_embedder(name: str, explicit: bool):
     try:
         return get_embedder(name)
     except (ImportError, FileNotFoundError) as e:
-        # with `all`, only a not-installed optional package (ImportError) is skippable
-        if explicit or name == REAL_EMBEDDERS[0] or isinstance(e, FileNotFoundError):
+        # with `all`, only the default must be present; others are skipped if not installed/fetched
+        if explicit or name == REAL_EMBEDDERS[0]:
             extra = " (ECAPA also needs `uv run --extra ecapa`)" if "ecapa" in name else ""
             msg = f"embedder {name!r} unavailable: {e}. Run scripts/fetch_models.py{extra}."
             raise SystemExit(_fail(msg)) from e

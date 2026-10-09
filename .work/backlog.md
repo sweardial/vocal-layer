@@ -66,73 +66,100 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
 
 ## M1: Live isolation with a realtime model
 
-- [ ] T-013 | M1 | Add streaming VAD with Silero ONNX and energy fallback
+- [x] T-013 | M1 | Add streaming VAD with Silero ONNX and energy fallback
   goal: Provide a frame-level streaming `VAD` interface with a Silero ONNX implementation and an `EnergyVAD` for synthetic audio.
   accept: `voiceroom/vad.py` (`VAD.process(frame) -> speech_prob`, `reset()`, frame size per D-003; `SileroVAD(model_path)` via onnxruntime with state carried across frames; `EnergyVAD`); `scripts/smoke/smoke_vad.py` checks that EnergyVAD on a synthetic conversation reaches ≥ 90 % frame agreement with ground truth, and that SileroVAD (SKIP if model or data is absent) reaches ≥ 90 % frame agreement on one LibriSpeech conversation with RTF < 0.1; `make check` green.
   depends: T-008, T-006
 
-- [ ] T-014 | M1 | Implement segmenter with turn endpointing and early decision hooks
+- [x] T-014 | M1 | Implement segmenter with turn endpointing and early decision hooks
   goal: Turn VAD frame decisions into speech segments/turns with hangover-based endpointing, a max turn length, and an "enough audio to identify" event.
   accept: `voiceroom/segmenter.py` (streaming; emits `SpeechStart`, `IdentifyReady(audio_so_far)` after a configurable min duration such as 1.0 s, `TurnEnd(audio, t_start, t_end)` after configurable trailing silence such as 400 ms, pre-roll padding, max-turn split); `scripts/smoke/smoke_segmenter.py` streams a synthetic conversation through EnergyVAD and the segmenter and asserts that turn boundaries are within ±300 ms of ground truth for ≥ 90 % of turns and that no turn spans two speakers when pauses are ≥ 600 ms; `make check` green.
   depends: T-013
 
-- [ ] T-015 | M1 | Define provider adapter interface and MockProvider
+- [x] T-015 | M1 | Define provider adapter interface and MockProvider
   goal: Define the provider-agnostic async adapter interface and a `MockProvider` that records what was committed.
   accept: `voiceroom/adapters/base.py` (`Provider`: `connect()`, `send_turn(audio16k, speaker_label|None)`, `interrupt()`, `audio_out` async iterator or callback, `close()`, with provider-agnostic types only) and `voiceroom/adapters/mock.py` (records turns, labels, and timestamps, and emits a short synthetic reply per turn); `scripts/smoke/smoke_mock_provider.py` sends 3 turns and checks the recorded order, labels, reply audio, and interrupt; a grep check in the smoke script asserts no provider-specific imports outside `adapters/`; `make check` green.
   depends: T-001
 
-- [ ] T-016 | M1 | Build streaming pipeline with isolation policy
+- [x] T-016 | M1 | Build streaming pipeline with isolation policy
   goal: Wire frames → VAD → segmenter → identify (early decision when confident) → isolation policy → provider, and measure end-of-speech → commit latency.
   accept: `voiceroom/policy.py` (`IsolationPolicy(owner)`) and `voiceroom/pipeline.py` (async `Pipeline(vad, segmenter, matcher, policy, provider).run(frame_source)`; decides early on `IdentifyReady` when score/margin is confident, otherwise at `TurnEnd`; drops rejected audio without forwarding it; records per-turn decision and latency); `scripts/smoke/smoke_e2e_isolation.py` runs 3 synthetic conversations (owner plus 2 others, toy embedder, EnergyVAD, MockProvider) and asserts zero non-owner turns committed, ≥ 90 % owner turns committed, and prints latency p50/p95; `make check` green.
   depends: T-004, T-014, T-015
 
-- [ ] T-017 | M1 | Add collaboration mode with speaker attribution
+- [x] T-017 | M1 | Add collaboration mode with speaker attribution
   goal: Forward all enrolled speakers with correct labels, and apply the unknown-speaker policy (drop or label "Unknown").
   accept: `CollaborationPolicy(enrolled, unknown="drop"|"label")` in `policy.py`, with the pipeline passing the label to `send_turn`; `scripts/smoke/smoke_e2e_collab.py` runs synthetic conversations with 3 enrolled speakers plus 1 unknown and asserts that every committed turn's label matches ground truth (≥ 95 %) and that unknown turns are dropped under "drop" and labeled "Unknown" under "label"; `make check` green.
   depends: T-016
 
-- [ ] T-018 | M1 | Measure pipeline latency and isolation accuracy on real components
+- [x] T-018 | M1 | Measure pipeline latency and isolation accuracy on real components
   goal: Report end-of-speech→commit latency and isolation FA/FR for the full pipeline with SileroVAD, the chosen embedder, and LibriSpeech conversations.
   accept: `python -m voiceroom.bench.pipeline` (also run by `make bench`) streams N LibriSpeech conversations at simulated realtime pacing through the pipeline with MockProvider and writes `reports/pipeline-<embedder>.md` (latency p50/p95 vs the 700 ms target, owner FR by length bucket, non-owner FA, collaboration attribution accuracy); `scripts/smoke/smoke_pipeline_real.py` runs 1 short conversation in < 15 s or SKIPs if assets are absent; the report is committed and its key numbers are in summary.md; `make check` green.
   depends: T-012, T-017
 
-- [ ] T-019 | M1 | Implement OpenAI Realtime adapter against a local fake server
+- [x] T-019 | M1 | Implement OpenAI Realtime adapter against a local fake server
   goal: Implement the OpenAI Realtime GA adapter per D-007 (manual turns, attribution text item, 24 kHz resampling, output audio, cancel), verified offline.
   accept: `voiceroom/adapters/openai_realtime.py` implementing `Provider` (the API key comes only from the env and is never logged; model configurable); the plan cites the current official docs for every event used; `scripts/smoke/fake_realtime_server.py` (localhost websockets server that records client events and replies with `response.output_audio.delta`/`response.done`); `scripts/smoke/smoke_openai_adapter.py` asserts `session.update` with `turn_detection` null, each committed turn is append…commit→response.create, the attribution item precedes audio in collaboration mode, no events are sent for dropped turns, audio deltas are decoded to the output stream, and interrupt sends `response.cancel`; `scripts/live/openai_realtime_check.py` (manual, not in make check) sends a wav turn and saves the reply to `data/out/`; `make check` green.
   depends: T-015
 
-- [ ] T-020 | M1 | Add mic and speaker I/O with file-based stand-ins
+- [x] T-020 | M1 | Add mic and speaker I/O with file-based stand-ins
   goal: Provide audio sources/sinks: sounddevice mic input and speaker output (lazy import), plus file source and wav sink for headless runs.
   accept: `voiceroom/io.py` (`MicSource` 16 kHz frames via sounddevice InputStream into an asyncio queue, `SpeakerSink` playing provider audio with resampling, `FileSource` with realtime or fast pacing, `WavSink`, `list_devices()` that degrades gracefully with no devices); `scripts/smoke/smoke_io.py` runs FileSource → pipeline (MockProvider) → WavSink on a synthetic conversation and checks the output wav exists and is non-empty, and checks `list_devices()` does not crash in the container; `make check` green.
   depends: T-016
 
-- [ ] T-021 | M1 | Add voiceroom CLI for enroll, list, delete, and demo
+- [x] T-021 | M1 | Add voiceroom CLI for enroll, list, delete, and demo
   goal: Expose `voiceroom enroll --name alice [--file x.wav]`, `voiceroom list`, `voiceroom delete`, and `voiceroom demo --mode isolation|collaboration --owner alice` per SPEC.
   accept: a `[project.scripts] voiceroom` entry point; `enroll` records ~25 s from the mic after an explicit consent prompt (or `--file`, with `--yes` for non-interactive consent) and saves to the encrypted store; `demo` takes `--provider openai|mock`, `--input file.wav` (otherwise mic), `--output-device`/`--out wav`, and `--embedder` (default from config), and prints one line per turn (speaker, decision, latency) without audio or embeddings; `scripts/smoke/smoke_cli.py` runs via subprocess with `--embedder toy` on synthetic wavs: enroll ×2 → list → demo isolation with mock on a conversation wav (asserts only owner turns are reported committed) → delete → list empty; `make check` green.
   depends: T-005, T-019, T-020
 
-- [ ] T-022 | M1 | Support barge-in: stop playback when accepted speaker talks
+- [x] T-022 | M1 | Support barge-in: stop playback when accepted speaker talks
   goal: When an accepted speaker starts talking while the model is responding, stop local playback and interrupt the provider; ignore non-accepted speakers.
   accept: The pipeline issues `provider.interrupt()` and flushes the sink once a turn by an accepted speaker is confirmed during playback (OpenAI adapter: `response.cancel` + `conversation.item.truncate` with played ms). Non-owner speech never interrupts in isolation mode. `scripts/smoke/smoke_bargein.py` uses MockProvider with a long reply and checks two cases: an owner turn mid-reply triggers exactly one interrupt and a sink flush, and a non-owner turn triggers none. `make check` green.
   depends: T-021
 
-- [ ] T-023 | M1 | Write macOS demo checklist and request human live test
+- [!] T-023 | M1 | Write macOS demo checklist and request human live test
   goal: Write exact macOS steps for the human to verify enrollment, isolation, collaboration, and the live OpenAI path with a real mic and speaker.
   accept: `docs/demo-macos.md` covers: prerequisites (uv, Python 3.12, `OPENAI_API_KEY`); `uv sync`; `fetch_models.py`; `voiceroom enroll` ×2; `voiceroom demo --mode isolation --owner alice --provider openai` with a script of who says what and the expected outcome; the collaboration run; `scripts/live/openai_realtime_check.py`; headphones advice to avoid echo; what to report back. Write `.work/tasks/T-023/needs_human.md` with the checklist link and a short results form. `make check` green.
   depends: T-018, T-022
   human: Run the macOS demo checklist with a real mic and speaker and an OpenAI API key, then report the results.
 
-- [ ] T-024 | M0 | Improve noisy and short-utterance accuracy
+- [x] T-024 | M0 | Improve noisy and short-utterance accuracy
   goal: Close the gap from D-009: at 10 dB SNR ≥ 1 s FRR is 16.9 % (target < 5 % at FAR < 2 %); < 1 s FRR is 18.8 % clean.
   accept: bench compares at least two of: multi-centroid signatures, score normalization (AS-norm/cohort), noise-augmented enrollment; the best is wired behind config and `reports/` shows ≥ 1 s 10 dB FRR and FAR; a new D-0xx records the result; `make bench` and `make check` green.
   depends: T-012
 
-- [ ] T-025 | M0 | Reduce p95 embedding latency
+- [x] T-025 | M0 | Reduce p95 embedding latency
   goal: Per-clip embedding p95 is about 595 ms (p50 75 ms) for wespeaker; find the cause (long clips, fbank, onnx threads, first calls) and cut it.
   accept: bench report shows p95 < 250 ms for the default embedder with no accuracy change (EER within 0.2 pt); `make bench` and `make check` green.
   depends: T-012
 
-- [ ] T-026 | M0 | Evaluate CAM++ as an embedder candidate
+- [x] T-026 | M0 | Evaluate CAM++ as an embedder candidate
   goal: Try 3D-Speaker CAM++ ONNX (verify licence/weights) against wespeaker on the bench.
   accept: a CAM++ embedder in the registry (or a decision recording why not) and its bench report; D-0xx updated if it beats wespeaker; `make bench` and `make check` green.
   depends: T-012
+- [x] T-027 | M1 | Ship AS-norm cohort and decide noise-aug enrollment defaults
+  goal: D-011 variants are config-only; add a cohort file loader (data/, no audio) and set defaults after live-audio check (T-023).
+  accept: pipeline uses cohort when present, with threshold stored alongside the cohort and IsolationPolicy early buffers rescaled to the AS-norm scale; bench shows no clean regression; D-0xx updated.
+  depends: T-024
+- [x] T-028 | M1 | Calibrate speaker-continuity window parameters on bench audio
+  goal: The pipeline's ~0.5 s window continuity check (`IsolationPolicy.windows_ok`; `WINDOW_DROPS`, `window_buffer`) uses provisional values for wespeaker/ecapa. Calibrate on LibriSpeech conversations with mid-turn speaker changes.
+  accept: bench or script reports interior-interjection leak rate vs owner false-reject (turns >= 1 s) for wespeaker at candidate `window_drop` values; config values set from it and recorded in decisions.md; `make check` green.
+  depends: T-016
+
+- [x] T-028 | M1 | Collaboration: split turns on mid-turn speaker change instead of dropping
+  goal: When continuity fails in collaboration mode, split the turn at the change point and forward each part with its own label.
+  accept: smoke with A->B no-pause turn forwards both parts labeled correctly; `make check` green.
+  depends: T-017
+
+- [!] T-029 | M1 | Calibrate pipeline continuity check and endpointing on real audio
+  goal: Owner FR is 86 % in `reports/pipeline-wespeaker-resnet34.md` (non-owner FA 0 %): the provisional `WINDOW_DROPS` (0.05) / `window_buffer` falsely reject real owner turns, and read-speech pauses split ~24 segments into ~39 turns (segmenter end_silence 0.4 s). Calibrate window_drop/window_buffer and segmenter settings on LibriSpeech, re-run `python -m voiceroom.bench.pipeline`, target owner FR < 5 % at FA < 2 %.
+  accept: new pipeline report committed with owner FR (>= 1 s) < 5 % and attribution accuracy >= 90 %; smoke_pipeline_real uses config defaults (no window_drop override); `make check` green.
+  depends: T-018
+
+- [x] T-030 | M1 | Speed up pipeline bench enrollment and trim smoke total
+  goal: `python -m voiceroom.bench.pipeline` takes ~9 min for 4 conversations (enrollment per conversation + 2 realtime passes) and `make smoke` is ~66 s (thin margin after T-018). Cache signatures per speaker set, and shorten the slowest smokes (smoke_identify_isolation 15 s).
+  accept: bench < 5 min, `make smoke` < 60 s with `make check` green.
+  depends: T-018
+- [x] T-031 | M1 | Rework continuity check: longer windows / softer rule to cut owner false-reject
+  goal: D-014 shows 0.5 s wespeaker windows give 63-65 % owner FR at any `window_drop` (the absolute floor `threshold - window_buffer` and the `best == owner` test; buffer 0.2 already gives ~10 pt lower FR for wespeaker); 1 s windows (`python -m voiceroom.bench.windows --win-frames 32`) give ~22-28 % FR with ~0-2 % leak for >= 1 s interjections. Try WIN_FRAMES=32, require the owner best only on a fraction of windows, or compare to the turn mean score; recalibrate with the windows bench.
+  accept: bench reports owner FR (turns >= 1 s) <= 10 % at leak <= 5 % for >= 1 s interior interjections, or documents why not; `make check` green.
+  depends: T-028

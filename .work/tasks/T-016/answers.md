@@ -1,0 +1,3 @@
+
+## 2026-10-08 22:09
+Do 5 more fix attempts. The failure is in `smoke_e2e_isolation.py:153`, in the stalled-provider block, not in the pipeline's behavior. It only sees `{'overflow'}` and never `send_timeout`. The likely cause is a race. Frames are fed with only `await asyncio.sleep(0)`, but identification runs in a thread. With `max_pending=1`, every TurnEnd after the first one overflows before the worker has dequeued anything. The one turn that does reach the worker is probably rejected, so `send_turn` is never awaited and nothing times out. Fix the smoke test so it is deterministic. Options, in order of preference:
