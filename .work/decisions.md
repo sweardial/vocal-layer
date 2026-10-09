@@ -51,3 +51,8 @@
 - Why wespeaker: lower EER in every condition, no torch at runtime, 26 MB, comparable speed.
 - Gap: the FA/FR targets are met for clean audio only. With 10 dB noise ≥ 1 s FRR is 16.9 % (> 5 %), and < 1 s FRR is high in all conditions. The p95 latency is also high. Follow-ups added: T-024 (noise robustness: score norm / multi-centroid / noisy enrollment), T-025 (p95 latency), T-026 (CAM++ comparison).
 - Caveat: LibriSpeech is read, clean speech; the threshold should be re-checked on live mic audio (T-023).
+
+## D-010 (2026-10-08) OpenAI Realtime wire details (settles D-007 uncertainty)
+- What: raw `websockets` client (no `openai` SDK). Attribution item = `{"type":"message","role":"user","content":[{"type":"input_text","text":"[Speaker: X]"}]}` sent before append/commit. Audio is appended in 100 ms pcm16 LE 24 kHz chunks. Reply audio is emitted at 24 kHz (`AudioOut.sample_rate=24000`); the sink resamples. `conversation.item.truncate.audio_end_ms` is clamped to the received audio length.
+- Why: fewer dependencies, and the fake server speaks the same JSON. The input_text shape follows the GA client-events reference (developers.openai.com/api/reference/resources/realtime/client-events).
+- Alternatives: the `openai` SDK realtime client; a single item with `input_text` + `input_audio` (kept as a fallback if attribution turns out weak live).

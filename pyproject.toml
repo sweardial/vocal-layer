@@ -10,6 +10,7 @@ dependencies = [
     "cryptography",
     "onnxruntime>=1.30.0",
     "kaldi-native-fbank>=1.22.3",
+    "websockets>=13,<16",
 ]
 
 [project.optional-dependencies]
