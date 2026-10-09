@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from voiceroom.cohort import Cohort
 from voiceroom.config import ASNORM_TOP_N, MIN_MARGIN, asnorm_threshold_for, threshold_for
 from voiceroom.embedders import Embedder
 from voiceroom.enroll import Signature
@@ -26,9 +27,10 @@ class Matcher:
         threshold: float | None = None,
         embedder: Embedder | None = None,
         min_margin: float = MIN_MARGIN,
-        cohort: np.ndarray | None = None,
+        cohort: "np.ndarray | Cohort | None" = None,
     ):
-        """`cohort` (n, dim) of impostor embeddings switches on AS-norm scoring."""
+        """`cohort` switches on AS-norm scoring: a `Cohort` (its threshold and top-n apply) or a
+        bare (n, dim) array of impostor embeddings (config threshold / top-n)."""
         if not signatures:
             raise ValueError("Matcher needs at least one signature")
         if len({s.name for s in signatures}) != len(signatures):
@@ -40,6 +42,14 @@ class Matcher:
         self.names = [s.name for s in signatures]
         self._cent = np.stack([s.centroid for s in signatures])
         self.cohort = None
+        self.top_n = ASNORM_TOP_N
+        self.score_scale = 1.0  # z-units per cosine unit (policies rescale their buffers by it)
+        cohort_threshold = None
+        if isinstance(cohort, Cohort):
+            if cohort.embedder != signatures[0].embedder:
+                raise ValueError("cohort embedder does not match signatures")
+            self.top_n, self.score_scale = cohort.top_n, cohort.score_scale
+            cohort_threshold, cohort = cohort.threshold, cohort.embeddings
         if cohort is not None:
             c = np.asarray(cohort, np.float32)
             if c.ndim != 2 or c.shape[1] != self._cent.shape[1] or len(c) < 2:
@@ -48,10 +58,15 @@ class Matcher:
             if not np.isfinite(c).all() or (norms < 1e-6).any():
                 raise ValueError("cohort has non-finite or zero vectors")
             self.cohort = c / norms
-            self._enroll_stats = [norm_stats(self.cohort, v, ASNORM_TOP_N) for v in self._cent]
+            self._enroll_stats = [norm_stats(self.cohort, v, self.top_n) for v in self._cent]
         if threshold is None:
             name = signatures[0].embedder
-            threshold = threshold_for(name) if self.cohort is None else asnorm_threshold_for(name)
+            if self.cohort is None:
+                threshold = threshold_for(name)
+            else:
+                threshold = cohort_threshold
+                if threshold is None:
+                    threshold = asnorm_threshold_for(name)
         self.threshold = threshold
         self.min_margin = min_margin
         self.embedder = embedder
@@ -71,7 +86,7 @@ class Matcher:
         sc = self._cent @ x
         if self.cohort is not None:
             try:
-                mt, st = norm_stats(self.cohort, x, ASNORM_TOP_N)
+                mt, st = norm_stats(self.cohort, x, self.top_n)
             except ValueError:  # degenerate normalization: fail closed (reject)
                 names = {n: float("-inf") for n in self.names}
                 return Match(None, float("-inf"), 0.0, self.names[0], names)

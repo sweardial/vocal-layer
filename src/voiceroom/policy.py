@@ -39,8 +39,10 @@ class IsolationPolicy:
         window_buffer: float = 0.1,
         window_drop: float | None = None,
         embedder: str = "",
+        score_scale: float = 1.0,
     ):
         self.owner = owner
+        self.score_scale = score_scale  # cosine-scale buffers x this = buffers in matcher units
         self.threshold = threshold
         self.early_score_buffer = early_score_buffer
         self.early_margin = early_margin
@@ -48,20 +50,25 @@ class IsolationPolicy:
         # ... and this far below the turn's median owner score (None: calibrated per embedder)
         self.window_drop = window_drop_for(embedder) if window_drop is None else window_drop
 
+    def bind_matcher(self, matcher) -> None:
+        """Adopt the matcher's score scale (AS-norm z-units) for the cosine-scale buffers."""
+        self.score_scale = matcher.score_scale
+
     def decide(self, match: Match, final: bool = True) -> Decision:
+        k = self.score_scale
         is_owner = match.name == self.owner
         if final:
             return Decision(Verdict.ACCEPT, self.owner) if is_owner else Decision(Verdict.REJECT)
         owner_score = match.scores.get(self.owner, match.score if is_owner else float("-inf"))
         rivals = [s for n, s in match.scores.items() if n != self.owner]
         lead = owner_score - max(rivals, default=float("-inf"))
-        if is_owner and owner_score >= self.threshold + self.early_score_buffer:
-            if lead >= self.early_margin:
+        if is_owner and owner_score >= self.threshold + self.early_score_buffer * k:
+            if lead >= self.early_margin * k:
                 return Decision(Verdict.ACCEPT, self.owner)
         elif not is_owner:
-            if match.name is not None and -lead >= self.early_margin:
+            if match.name is not None and -lead >= self.early_margin * k:
                 return Decision(Verdict.REJECT)  # confidently someone else
-            if owner_score <= self.threshold - self.early_score_buffer:
+            if owner_score <= self.threshold - self.early_score_buffer * k:
                 return Decision(Verdict.REJECT)
         return Decision(Verdict.UNDECIDED)
 
@@ -74,8 +81,9 @@ class IsolationPolicy:
         scores = [m.scores.get(self.owner, float("-inf")) for m in matches]
         if not scores:
             return True
+        k = self.score_scale
         floor = max(
-            self.threshold - self.window_buffer, float(np.median(scores)) - self.window_drop
+            self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
         )
         return all(
             m.best == self.owner and s >= floor for m, s in zip(matches, scores, strict=True)
@@ -104,6 +112,7 @@ class CollaborationPolicy:
         window_buffer: float = 0.1,
         window_drop: float | None = None,
         embedder: str = "",
+        score_scale: float | None = None,
     ):
         if unknown not in ("drop", "label"):
             raise ValueError("unknown must be 'drop' or 'label'")
@@ -116,23 +125,28 @@ class CollaborationPolicy:
         self.early_margin = early_margin
         self.window_buffer = window_buffer
         self.window_drop = window_drop  # None: calibrated per embedder by `bind_matcher`
+        self.score_scale = score_scale  # None: the matcher's, by `bind_matcher` (1.0 until then)
+        self._default_threshold = threshold is None  # embedder default, not caller-chosen
         if embedder:
             self.window_drop = window_drop_for(embedder) if window_drop is None else window_drop
             self.threshold = threshold_for(embedder) if threshold is None else threshold
 
     def bind_matcher(self, matcher) -> None:
         """Fill unset threshold / window_drop from the matcher (called by the Pipeline)."""
-        if self.threshold is None:
-            self.threshold = matcher.threshold
+        if self.threshold is None or (self._default_threshold and matcher.cohort is not None):
+            self.threshold = matcher.threshold  # a cosine default must not meet z-scores
+        if self.score_scale is None:
+            self.score_scale = matcher.score_scale
         if self.window_drop is None:
             name = matcher.embedder.name if matcher.embedder is not None else ""
             self.window_drop = window_drop_for(name)
 
     def decide(self, match: Match, final: bool = True) -> Decision:
+        k = self.score_scale or 1.0
         if match.name in self.enrolled:
             if final or (
-                match.score >= self.threshold + self.early_score_buffer
-                and match.margin >= self.early_margin
+                match.score >= self.threshold + self.early_score_buffer * k
+                and match.margin >= self.early_margin * k
             ):
                 return Decision(Verdict.ACCEPT, match.name)
             return Decision(Verdict.UNDECIDED)
@@ -153,7 +167,8 @@ class CollaborationPolicy:
         if label == UNKNOWN_LABEL:
             return all(m.name not in self.enrolled for m in matches)
         scores = [m.scores.get(label, float("-inf")) for m in matches]
+        k = self.score_scale or 1.0
         floor = max(
-            self.threshold - self.window_buffer, float(np.median(scores)) - self.window_drop
+            self.threshold - self.window_buffer * k, float(np.median(scores)) - self.window_drop * k
         )
         return all(m.best == label and s >= floor for m, s in zip(matches, scores, strict=True))

@@ -136,7 +136,7 @@ Conventions (see `.work/decisions.md` D-001): smoke scripts live in `scripts/smo
   goal: Try 3D-Speaker CAM++ ONNX (verify licence/weights) against wespeaker on the bench.
   accept: a CAM++ embedder in the registry (or a decision recording why not) and its bench report; D-0xx updated if it beats wespeaker; `make bench` and `make check` green.
   depends: T-012
-- [ ] T-027 | M1 | Ship AS-norm cohort and decide noise-aug enrollment defaults
+- [x] T-027 | M1 | Ship AS-norm cohort and decide noise-aug enrollment defaults
   goal: D-011 variants are config-only; add a cohort file loader (data/, no audio) and set defaults after live-audio check (T-023).
   accept: pipeline uses cohort when present, with threshold stored alongside the cohort and IsolationPolicy early buffers rescaled to the AS-norm scale; bench shows no clean regression; D-0xx updated.
   depends: T-024

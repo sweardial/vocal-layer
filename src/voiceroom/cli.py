@@ -7,11 +7,13 @@ import functools
 import os
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 import numpy as np
 
 from voiceroom.audio import SAMPLE_RATE, load_audio
+from voiceroom.cohort import Cohort, load_default
 from voiceroom.config import DEFAULT_EMBEDDER, threshold_for
 from voiceroom.enroll import EnrollmentError, Signature, enroll
 from voiceroom.matcher import Matcher
@@ -136,9 +138,11 @@ def cmd_delete(args: argparse.Namespace) -> int:
 # ---- demo -------------------------------------------------------------------------------
 
 
-def _build_matcher(embedder: str, sigs: list[Signature], threshold: float) -> Matcher:
+def _build_matcher(
+    embedder: str, sigs: list[Signature], threshold: float, cohort: Cohort | None = None
+) -> Matcher:
     """Module-level so the identification child process can build it (ONNX isn't picklable)."""
-    return Matcher(sigs, threshold=threshold, embedder=_embedder(embedder))
+    return Matcher(sigs, threshold=threshold, embedder=_embedder(embedder), cohort=cohort)
 
 
 def _warn_playback(task: asyncio.Task) -> None:
@@ -231,11 +235,31 @@ def cmd_demo(args: argparse.Namespace) -> int:
             raise CliError("--owner is required in isolation mode")
         if args.owner not in names:
             raise CliError(f"owner {args.owner!r} is not enrolled (enrolled: {', '.join(names)})")
-    threshold = args.threshold if args.threshold is not None else threshold_for(args.embedder)
-    if args.mode == "isolation":
-        policy = IsolationPolicy(args.owner, threshold, embedder=args.embedder)
+    try:
+        cohort = (
+            None if args.no_cohort else load_default(args.embedder, load_key(args.keyfile))
+        )  # AS-norm when shipped
+    except (ValueError, KeyError, zipfile.BadZipFile) as exc:
+        raise CliError(f"bad cohort file ({exc}); rebuild it or pass --no-cohort") from exc
+    if cohort is not None:
+        print(
+            f"AS-norm cohort active ({len(cohort.embeddings)} windows, threshold "
+            f"{cohort.threshold:g} in z-units)",
+            file=sys.stderr,
+        )
+        if args.threshold is not None:
+            raise CliError("--threshold is cosine-scale; with a cohort file also pass --no-cohort")
+    if args.threshold is not None:
+        threshold = args.threshold
     else:
-        policy = CollaborationPolicy(names, args.unknown, threshold, embedder=args.embedder)
+        threshold = cohort.threshold if cohort else threshold_for(args.embedder)
+    scale = cohort.score_scale if cohort else 1.0
+    if args.mode == "isolation":
+        policy = IsolationPolicy(args.owner, threshold, embedder=args.embedder, score_scale=scale)
+    else:
+        policy = CollaborationPolicy(
+            names, args.unknown, threshold, embedder=args.embedder, score_scale=scale
+        )
 
     if args.provider == "openai":
         if not os.environ.get("OPENAI_API_KEY"):
@@ -245,7 +269,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         inner = MockProvider()
     linger = OPENAI_LINGER_S if args.provider == "openai" and args.input else 0.0
 
-    matcher = _build_matcher(args.embedder, sigs, threshold)
+    matcher = _build_matcher(args.embedder, sigs, threshold, cohort)
     try:
         with contextlib.ExitStack() as stack:
             if args.out:
@@ -258,7 +282,9 @@ def cmd_demo(args: argparse.Namespace) -> int:
                 matcher,
                 policy,
                 _PlayingProvider(inner, sink, linger),
-                matcher_factory=functools.partial(_build_matcher, args.embedder, sigs, threshold),
+                matcher_factory=functools.partial(
+                    _build_matcher, args.embedder, sigs, threshold, cohort
+                ),
                 on_record=_turn_printer(),
                 # Unpaced replay: turns outrun playback, so barge-in would chop every reply.
                 sink=None if args.input and not args.realtime else sink,
@@ -313,7 +339,16 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--output-device", help="speaker device index or name")
     m.add_argument("--out", help="write the model's reply audio to this wav instead of playing")
     m.add_argument("--embedder", default=DEFAULT_EMBEDDER)
-    m.add_argument("--threshold", type=float, help="match threshold (default: per embedder)")
+    m.add_argument(
+        "--threshold",
+        type=float,
+        help="cosine match threshold (default: per embedder; needs --no-cohort if a cohort exists)",
+    )
+    m.add_argument(
+        "--no-cohort",
+        action="store_true",
+        help="ignore data/cohort-<embedder>.npz (cosine scoring)",
+    )
     m.add_argument("--unknown", choices=["drop", "label"], default="drop", help="collaboration")
     m.add_argument("--realtime", action="store_true", help="pace --input at wall-clock speed")
     m.set_defaults(fn=cmd_demo)

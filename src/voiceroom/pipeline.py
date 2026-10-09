@@ -106,8 +106,7 @@ class Pipeline:
         self.peak_inflight = 0
         self.vad, self.segmenter, self.matcher = vad, segmenter, matcher
         self.policy, self.provider = policy, provider
-        if isinstance(policy, CollaborationPolicy):
-            policy.bind_matcher(matcher)
+        policy.bind_matcher(matcher)
         self.on_record = on_record
         self.sink = sink  # barge-in: an accepted turn during playback flushes it + interrupts
         self.records: deque[TurnRecord] = deque(maxlen=max_records)  # most recent run/turns

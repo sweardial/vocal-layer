@@ -20,6 +20,7 @@ import numpy as np
 from voiceroom.adapters import MockProvider
 from voiceroom.audio import iter_frames
 from voiceroom.bench.run import enroll_speakers
+from voiceroom.cohort import Cohort, load_default
 from voiceroom.config import MIN_DECISION_S, threshold_for
 from voiceroom.embedders import get_embedder
 from voiceroom.eval.conversations import Conversation, make_conversation
@@ -28,6 +29,7 @@ from voiceroom.matcher import Matcher
 from voiceroom.pipeline import Pipeline, TurnRecord
 from voiceroom.policy import UNKNOWN_LABEL, CollaborationPolicy, IsolationPolicy, Verdict
 from voiceroom.segmenter import Segmenter
+from voiceroom.store import load_key
 from voiceroom.vad import DEFAULT_MODEL, FRAME_S, FRAME_SIZE, SileroVAD
 
 MIN_LATENCY_N = 20  # fewer samples than this do not support a latency verdict
@@ -76,12 +78,20 @@ def _covered(seg, rec: TurnRecord) -> bool:
     return _overlap(seg, rec) >= min(0.3, 0.5 * (seg[1] - seg[0]))
 
 
+EXCLUDE: frozenset[str] = frozenset()  # cohort speakers: never drawn, so A/B runs share convs
+COHORT: Cohort | None = None  # set by --cohort: AS-norm scoring with the shipped cohort
+
+
+def _threshold(name):
+    return COHORT.threshold if COHORT else threshold_for(name)
+
+
 def stream(conv, sigs, emb, policy, speed, provider=None):
     provider = provider or MockProvider()
     pipe = Pipeline(
         SileroVAD(),
         Segmenter(),
-        Matcher(sigs, threshold=threshold_for(emb.name), embedder=emb),
+        Matcher(sigs, threshold=_threshold(emb.name), embedder=emb, cohort=COHORT),
         policy,
         provider,
         max_pending=1000,
@@ -217,7 +227,8 @@ def render(emb_name: str, st: Stats, header: dict, wall_s: float) -> str:
         f"- enrolled speakers: {pct(*st.attrib_enrolled)}; stranger -> Unknown: "
         f"{pct(*st.attrib_unknown)}",
         "",
-        f"Notes: min decision length {MIN_DECISION_S:g} s, threshold {threshold_for(emb_name):g}, "
+        f"Notes: min decision length {MIN_DECISION_S:g} s, threshold {_threshold(emb_name):g}"
+        f"{' (AS-norm cohort)' if COHORT else ''}, "
         "identification on a thread, MockProvider (no network). Read, clean speech, no added "
         "noise; live audio will be harder (see T-023).",
         "",
@@ -237,7 +248,7 @@ def build(
 ):
     """Stream n_conv conversations twice (isolation, collaboration); return Stats."""
     st = Stats()
-    all_spk = corpus.speakers()
+    all_spk = [s for s in corpus.speakers() if s not in EXCLUDE]
     rng = np.random.default_rng([seed, 18])
     for c in range(n_conv):
         spks = [all_spk[i] for i in rng.choice(len(all_spk), N_ENROLLED + 1, replace=False)]
@@ -248,11 +259,17 @@ def build(
         )
         owner = enrolled[0]
         pol = IsolationPolicy(
-            owner, threshold_for(emb.name), window_drop=window_drop, embedder=emb.name
+            owner,
+            _threshold(emb.name),
+            window_drop=window_drop,
+            embedder=emb.name,
+            score_scale=COHORT.score_scale if COHORT else 1.0,
         )
         recs, _ = stream(conv, sigs, emb, pol, speed)
         score_isolation(st, conv, recs, owner)
-        pol = CollaborationPolicy(enrolled, "label", window_drop=window_drop, embedder=emb.name)
+        pol = CollaborationPolicy(
+            enrolled, "label", _threshold(emb.name), window_drop=window_drop, embedder=emb.name
+        )  # score_scale is bound from the matcher
         recs, prov = stream(conv, sigs, emb, pol, speed)
         score_collab(st, conv, recs, prov, stranger)
         print(f"conversation {c + 1}/{n_conv} done", file=sys.stderr)
@@ -270,7 +287,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--turns", type=int, default=6)
     p.add_argument("--speed", type=float, default=1.0, help="pacing factor; 1 = realtime")
     p.add_argument("--window-drop", type=float, default=None, help="default: config value")
+    p.add_argument("--cohort", action="store_true", help="AS-norm with data/cohort-<embedder>.npz")
     a = p.parse_args(argv)
+    global COHORT, EXCLUDE
+    shipped = load_default(a.embedder, load_key())
+    if a.cohort and shipped is None:
+        print(
+            "bench.pipeline: no cohort file; run python -m voiceroom.bench.cohort", file=sys.stderr
+        )
+        return 2
+    COHORT = shipped if a.cohort else None
+    EXCLUDE = frozenset(shipped.speakers) if shipped else frozenset()
     root = Path(a.data)
     if not (root / a.subset).is_dir() or not DEFAULT_MODEL.exists():
         print(
@@ -290,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         f"speed={a.speed:g}x window_drop={a.window_drop or 'config'} "
         f"enroll_utts={N_ENROLL_UTTS} VAD=SileroVAD",
     }
-    out = Path(a.out) / f"pipeline-{emb.name}.md"
+    out = Path(a.out) / f"pipeline-{emb.name}{'-asnorm' if COHORT else ''}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(emb.name, st, header, time.monotonic() - t0))
     print(out)

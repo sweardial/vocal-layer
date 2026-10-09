@@ -1,13 +1,20 @@
 """Smoke: noise-augmented enrollment adds chunks; AS-norm Matcher ranks the owner first."""
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
+from cryptography.fernet import Fernet
 
 from voiceroom import synth
+from voiceroom.cohort import Cohort, estimate_score_scale, load_default
 from voiceroom.embedders import get_embedder
 from voiceroom.enroll import enroll
-from voiceroom.matcher import Matcher
+from voiceroom.matcher import Match, Matcher
+from voiceroom.policy import CollaborationPolicy, IsolationPolicy
 
 emb = get_embedder("toy")
+KEY = Fernet.generate_key()
 audio = synth.utterance(1, 24.0, seed=100)
 plain = enroll("a", audio, emb, ())
 aug = enroll("a", audio, emb, (20.0, 10.0))
@@ -53,3 +60,35 @@ for bad in (np.zeros((2, dim)), np.full((2, dim), np.nan)):
     except ValueError:
         pass
 print(f"noise-robust ok: own={own.score:.2f} thr={thr:.2f}")
+
+# cohort file round-trip + z-unit rescale of the policies' early buffers
+scale = estimate_score_scale(cohort / np.linalg.norm(cohort, axis=1, keepdims=True))
+assert scale > 1.0, scale  # cosine spread is < 1, so z-units per cosine > 1
+co = Cohort(cohort, emb.name, thr, 100, scale)
+with tempfile.TemporaryDirectory() as d:
+    assert load_default(emb.name, KEY, Path(d)) is None  # absent -> AS-norm stays off
+    co.save(Path(d) / f"cohort-{emb.name}.npz", KEY)
+    back = load_default(emb.name, KEY, Path(d))
+assert back is not None and np.allclose(back.embeddings, cohort, atol=1e-6)
+assert (back.threshold, back.score_scale) == (thr, scale)
+cm = Matcher(sigs, cohort=back)  # threshold comes from the cohort, not config
+assert cm.threshold == thr and cm.score_scale == scale
+assert (
+    cm.identify_embedding(probe["a"]).name == "a" and cm.identify_embedding(probe["x"]).name is None
+)
+try:
+    Matcher(sigs, cohort=Cohort(cohort, "other", thr))
+    raise SystemExit("expected ValueError for cohort/embedder mismatch")
+except ValueError:
+    pass
+
+# a 0.15 cosine lead is clear (>= 0.1 buffer) in cosine units but not in z-units once scaled
+big = Match("a", thr + 0.5, 1.0, "a", {"a": thr + 0.5, "b": thr - 0.5})
+assert IsolationPolicy("a", thr).decide(big, final=False).verdict.value == "accept"
+iso = IsolationPolicy("a", thr)
+iso.bind_matcher(cm)
+assert iso.decide(big, final=False).verdict.value == "undecided", "buffer not rescaled"
+col = CollaborationPolicy(["a", "b"])
+col.bind_matcher(cm)
+assert col.score_scale == scale and col.decide(big, final=False).verdict.value == "undecided"
+print("cohort ok")

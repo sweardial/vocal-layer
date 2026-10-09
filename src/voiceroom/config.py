@@ -32,7 +32,9 @@ ENROLL_NOISE_SNRS: tuple[float, ...] = ()
 # scores live on a different scale (z-units), so they have their own thresholds (FAR ~1 %),
 # valid only for a bench-like cohort (~220 windows of other speakers, top-N 100); recalibrate
 # for any other cohort.
-# IsolationPolicy's early buffers are cosine-scale: rescale them before enabling AS-norm there.
+# The cohort file (data/cohort-<embedder>.npz, `voiceroom.cohort`) carries its own threshold and
+# score_scale (z per cosine); ASNORM_THRESHOLDS is only the fallback for a bare cohort array.
+# Policies multiply their cosine-scale buffers by the matcher's score_scale.
 ASNORM_THRESHOLDS: dict[str, float] = {"wespeaker-resnet34": 2.88}
 ASNORM_TOP_N = 100
 
