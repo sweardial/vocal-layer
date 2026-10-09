@@ -1,0 +1,23 @@
+# T-041 summary
+**Changed:** `room.py` bleed detector (`_bleed_of`, on by default, `bleed=False` disables): a non-owner-verified accepted turn is dropped when ≥50 % of it overlaps a louder (≥3 dB) committed/pending turn from another source and its voice is that source's identity or matches no member. Owner-verified turns are never dropped. Commit waits for other sources to stream 0.15 s past (copy may end before original). `RoomTurnRecord.bleed_of`. `synth.add_bleed`, `eval.conversations.bleed_tracks`. New `scripts/smoke/smoke_room_bleed.py`.
+**Verified:** `make check` green. Smoke: no duplicates at −10/−12/−18 dB (5–40 ms delay, noise); simultaneous A/B on own tracks → 2 commits; no-bleed audio identical with detector on/off; paced case with early-ending copy; detector off duplicates (proves it bites).
+**Review fixes:** early-ending copy race (HIGH), remembered label = label actually sent.
+**Follow-ups / known limits:** level gate uses raw RMS, so mic gain differences can misorder original/copy (MEDIUM, unfixed; needs per-track gain normalisation, calibrate in T-042). Simultaneous overlap with bleed on a toy embedder is rejected by policy, not the detector.
+
+## Fix round 2
+- **HIGH (early copy, original still in segmenter):** a non-owner-verified turn now waits (≤1.5 s) until other sources have streamed past it and have no turn open over it (`Segmenter.open_since`, `_await_originals`). Smoke: copy ends 350 ms before its original, paced; fails if the open-turn wait is disabled.
+- **MEDIUM (unmatched voice treated as copy):** a turn matching no member is only dropped if its waveform correlates (≥0.5, ±0.3 s of nominal alignment, `_correlated`) with the louder turn; named matches still use voice. Audio is kept in memory only (16 turns). Smoke: independent guest at 0.2 gain over Alice → both committed.
+- **MEDIUM (remembered before send):** turns are remembered only after a successful send; a copy that relies on a not-yet-delivered original is held on it (`deps`) and is dropped when the original is delivered, or sent itself if the original's send fails. Smoke: transient send failure on A → one commit (the copy), A's record `send_error`.
+- Verified: `make check` green. Limits unchanged: raw-RMS level gate vs mic gain (T-042); a copy of an original longer than 1.5 s still open may slip through; correlation thresholds are uncalibrated on real speech.
+
+## Fix round 3
+- **HIGH (original still open after the wait expires):** `_open_candidates` adds the other sources' open (undecided) turns, from their segmenter buffers, to the candidates, so a copy is compared against buffered live speech before delivery. Caveat: the original is not yet an entry, so if its send later fails the dropped copy is not recovered (the `deps` fallback only covers originals already queued). Smoke: copy stops at 1.2 s, waits shrunk to 50 ms so they expire while Alice's turn is open → one commit, copy `bleed_of="a"`.
+- **MEDIUM (identity alone treated as duplicate):** every drop now needs waveform correlation (`_corr_peak` ≥ `BLEED_MIN_CORR`, raised 0.5 → 0.7) plus voice compatibility (named match to the other track, or no member). Smoke: Alice live on a, different Alice speech at 0.2 gain on b → two commits.
+- Test note: synthetic utterances of one speaker are near-identical waveforms (corr 0.99 between different utterances; 0.79 time-reversed), so the same-speaker smoke case shuffles 0.3 s chunks (corr 0.46). Thresholds are uncalibrated on real speech (T-042).
+- Verified: `make check` green.
+
+## Fix round 4
+- **HIGH (copy of a still-open original lost on send failure):** open-turn candidates are marked `_OPEN`; a copy matched to one is held in `_open_deps[source]` and attached to that source's next queued entry, so it is dropped only if that original is delivered, and sent itself if the original is rejected or its send fails. Leftovers (source ended without a turn) are sent when the committer exits. Smoke: copy ends at 1.2 s + provider failing Alice's first send → `send_error` on A, one commit (the copy).
+- **MEDIUM (latency for genuine guests):** removed the blanket wait for overlapping open sources (`_await_originals`, `BLEED_WAIT_S`, `BLEED_SKEW_S`). The check now uses only what is already buffered (history, queued entries, open-segmenter audio) plus the committer's existing catch-up, so a non-copy commits immediately. Smoke (32 ms pacing): independent 0.2-gain stranger over Alice's continuous speech is accepted with latency < 0.7 s.
+- Caveat: the copy is compared with the original's buffer so far; a copy that precedes any buffered original audio (stream lag beyond the catch-up) can still duplicate.
+- Verified: `make check` green; `smoke_room_bleed.py` ~10 s (paced cases).

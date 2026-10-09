@@ -115,6 +115,11 @@ class Segmenter:
         """Frames (incl. pre-roll) of the open turn; 0 when idle."""
         return len(self._frames) if self._active else 0
 
+    @property
+    def open_since(self) -> float | None:
+        """Stream time of the open turn's first speech frame; None when idle."""
+        return self._start_idx * FRAME_S if self._active else None
+
     def turn_audio(self) -> np.ndarray:
         """Audio of the open turn so far (same alignment as the eventual TurnEnd.audio)."""
         return np.concatenate(self._frames)

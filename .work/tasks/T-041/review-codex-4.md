@@ -1,0 +1,2 @@
+VERDICT: PASS
+[MEDIUM] src/voiceroom/room.py:384: Failed-original fallback sends every held copy without deduplicating subsequent copies → reproduced with Alice on a and identical early-ending −12 dB/15 ms copies on b and c: when Alice's first provider send raises, b and c both commit the same speech (two provider turns); make check still passes (29 scripts, 28.18 s) → after one fallback succeeds, suppress the remaining correlated copies, while allowing another fallback if that send fails; extend the existing bleed smoke to cover three microphones and original-send failure.

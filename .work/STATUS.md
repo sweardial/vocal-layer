@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 19:15
-Phase: build · unit tests off · 40/51 done · est. API-equivalent cost $65.42
+Voice Room · 2026-10-09 19:21
+Phase: build · unit tests off · 41/51 done · est. API-equivalent cost $66.30
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -43,8 +43,8 @@ Phase: build · unit tests off · 40/51 done · est. API-equivalent cost $65.42
 ✅ T-037 Free smoke-time headroom before M3 adds room smokes
 ✅ T-038 Extract a per-source turn processor from Pipeline
 ✅ T-039 Build multi-source room pipeline with serialized commits
-🔨 T-040 Add track-identity verification policy (verified and shared tracks)
-⬜ T-041 Suppress cross-talk bleed between co-located microphones
+✅ T-040 Add track-identity verification policy (verified and shared tracks)
+🔨 T-041 Suppress cross-talk bleed between co-located microphones
 ⬜ T-042 Benchmark room isolation and attribution on LibriSpeech multi-track audio
 ⬜ T-043 Define room transport interface with in-memory FakeRoom
 ⬜ T-044 Fetch a pinned local LiveKit server and prove an offline loopback
@@ -59,6 +59,7 @@ Phase: build · unit tests off · 40/51 done · est. API-equivalent cost $65.42
 ## Recent commits
 
 ```
+d7344fb T-040: Add track-identity verification policy (verified and shared tracks)
 f4e012a T-039: Build multi-source room pipeline with serialized commits
 3501304 T-038: Extract a per-source turn processor from Pipeline
 fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
@@ -68,5 +69,4 @@ fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
 dd02e97 T-034: Make the AS-norm cohort file portable across machines
 f84d8cc T-033: Add sounddevice as a dependency and fix demo docs
 8ed8c35 T-023: Write macOS demo checklist and request human live test
-7ad6c79 T-032: Cut sub-1 s interior-interjection leak without raising owner FR
 ```

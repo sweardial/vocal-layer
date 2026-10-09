@@ -107,3 +107,30 @@ def add_noise(
     p_sig = float(np.mean(np.square(x, dtype=np.float64))) if ref_power is None else ref_power
     scale = np.sqrt(p_sig / 10 ** (snr_db / 10))
     return (x + scale * noise(kind, len(x), seed)).astype(np.float32)
+
+
+def add_bleed(
+    track: np.ndarray,
+    source: np.ndarray,
+    level_db: float = -12.0,
+    delay_ms: float = 15.0,
+    noise_snr_db: float | None = 20.0,
+    seed: int = 0,
+) -> np.ndarray:
+    """Mix a copy of `source` (another mic's signal, same length scale) into `track`: attenuated
+    by `level_db` (-10..-20 typical), delayed by `delay_ms` (5-40 typical), with pink noise at
+    `noise_snr_db` relative to the copy (None = no noise), present only while the copy is."""
+    n = len(track)
+    d = int(round(delay_ms * 1e-3 * SAMPLE_RATE))
+    copy = np.zeros(n, dtype=np.float64)
+    m = max(0, min(len(source), n - d))
+    copy[d : d + m] = source[:m]
+    copy *= 10 ** (level_db / 20)
+    if noise_snr_db is not None and copy.any():
+        # noise rides on the copy (only where the other mic is speaking): the pauses stay quiet
+        p = float(np.mean(np.square(copy[copy != 0])))
+        hop = 512
+        act = np.repeat([np.any(copy[i : i + hop] != 0) for i in range(0, n, hop)], hop)[:n]
+        noisy = add_noise(copy, "pink", noise_snr_db, seed=seed, ref_power=p)
+        copy = np.where(act, noisy, copy)
+    return (track + copy).astype(np.float32)

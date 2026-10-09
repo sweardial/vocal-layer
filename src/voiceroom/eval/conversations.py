@@ -105,3 +105,24 @@ def load_conversation(path: str | Path) -> Conversation:
     meta = json.loads(Path(f"{path}.json").read_text())
     segs = [(float(a), float(b), s) for a, b, s in meta["segments"]]
     return Conversation(x, segs, meta["utterance_ids"], meta["enrollment_ids"])
+
+
+def bleed_tracks(
+    tracks: dict[str, np.ndarray],
+    level_db: float = -12.0,
+    delay_ms: float = 15.0,
+    noise_snr_db: float | None = 20.0,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Co-located mics: every track also hears every other track's (clean) signal, attenuated
+    by `level_db`, delayed by `delay_ms`, with noise. The inputs are not modified."""
+    from ..synth import add_bleed
+
+    out = {}
+    for i, (sid, own) in enumerate(tracks.items()):
+        x = own
+        for j, (other, src) in enumerate(tracks.items()):
+            if other != sid:
+                x = add_bleed(x, src, level_db, delay_ms, noise_snr_db, seed + 31 * i + j)
+        out[sid] = x
+    return out
