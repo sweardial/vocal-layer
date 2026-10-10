@@ -1,8 +1,9 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 21:04
-Phase: build · unit tests off · 47/52 done · est. API-equivalent cost $80.69
+Voice Room · 2026-10-09 21:31
+Phase: build · unit tests off · 48/52 done · est. API-equivalent cost $83.21
+⏳ Usage limit, resuming ~21:52
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -50,8 +51,8 @@ Phase: build · unit tests off · 47/52 done · est. API-equivalent cost $80.69
 ✅ T-044 Fetch a pinned local LiveKit server and prove an offline loopback
 ✅ T-045 Implement LiveKit room transport against the local server
 ✅ T-046 Add sessions and invites with membership-driven policy
-🔨 T-047 Support barge-in and reply playback in rooms
-⬜ T-048 Add CLI for sessions, join tokens, and the room agent
+✅ T-047 Support barge-in and reply playback in rooms
+🔨 T-048 Add CLI for sessions, join tokens, and the room agent
 ⬜ T-049 Measure end-to-end room latency through the local LiveKit server
 ⬜ T-050 Write multi-device room demo checklist and request human live test
 ⬜ T-051 Add stranger-tail turns to the room bench and fix narrowband owner FR
@@ -60,6 +61,7 @@ Phase: build · unit tests off · 47/52 done · est. API-equivalent cost $80.69
 ## Recent commits
 
 ```
+7010ee0 T-047: Support barge-in and reply playback in rooms
 a156957 T-046: Add sessions and invites with membership-driven policy
 5a2e5be T-045: Implement LiveKit room transport against the local server
 2bbc12c T-044: Fetch a pinned local LiveKit server and prove an offline loopback
@@ -69,5 +71,4 @@ dd6fee9 T-041: Suppress cross-talk bleed between co-located microphones
 d7344fb T-040: Add track-identity verification policy (verified and shared tracks)
 f4e012a T-039: Build multi-source room pipeline with serialized commits
 3501304 T-038: Extract a per-source turn processor from Pipeline
-fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
 ```

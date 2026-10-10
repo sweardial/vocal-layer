@@ -1,4 +1,4 @@
-"""`voiceroom` command line: enroll, list, delete, demo. Never prints audio or embeddings."""
+"""`voiceroom` command line: enroll, list, delete, demo, session, token, room (no audio out)."""
 
 import argparse
 import asyncio
@@ -145,6 +145,47 @@ def _build_matcher(
     return Matcher(sigs, threshold=threshold, embedder=_embedder(embedder), cohort=cohort)
 
 
+def _load_sigs(store: SignatureStore, embedder: str) -> list[Signature]:
+    names = store.list()
+    if not names:
+        raise CliError("no signatures enrolled; run `voiceroom enroll` first")
+    sigs = [store.load(n) for n in names]
+    if {s.embedder for s in sigs} != {embedder}:
+        raise CliError(
+            f"stored signatures use embedder(s) {sorted({s.embedder for s in sigs})}, "
+            f"but --embedder is {embedder!r}; pass --embedder or re-enroll"
+        )
+    return sigs
+
+
+def _scoring(args: argparse.Namespace) -> tuple[Cohort | None, float, float]:
+    """(cohort, threshold, score scale) from --embedder/--threshold/--no-cohort."""
+    try:
+        cohort = None if args.no_cohort else load_default(args.embedder)  # AS-norm when shipped
+    except (ValueError, KeyError, zipfile.BadZipFile) as exc:
+        raise CliError(f"bad cohort file ({exc}); rebuild it or pass --no-cohort") from exc
+    if cohort is not None:
+        print(
+            f"AS-norm cohort active ({len(cohort.embeddings)} windows, threshold "
+            f"{cohort.threshold:g} in z-units)",
+            file=sys.stderr,
+        )
+        if args.threshold is not None:
+            raise CliError("--threshold is cosine-scale; with a cohort file also pass --no-cohort")
+    if args.threshold is not None:
+        threshold = args.threshold
+    else:
+        threshold = cohort.threshold if cohort else threshold_for(args.embedder)
+    return cohort, threshold, cohort.score_scale if cohort else 1.0
+
+
+def _debug_logging() -> None:
+    import logging
+
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.getLogger("voiceroom.pipeline").setLevel(logging.INFO)
+
+
 def _warn_playback(task: asyncio.Task) -> None:
     if not task.cancelled() and task.exception() is not None:
         print("warning: audio playback failed", file=sys.stderr)
@@ -214,10 +255,7 @@ async def _demo(args, pipe, sink) -> None:
 
 def cmd_demo(args: argparse.Namespace) -> int:
     if args.debug:  # per dropped turn: the continuity rule + window scores (numbers only)
-        import logging
-
-        logging.basicConfig(level=logging.WARNING, format="%(message)s")
-        logging.getLogger("voiceroom.pipeline").setLevel(logging.INFO)
+        _debug_logging()
     from voiceroom.adapters import MockProvider, OpenAIRealtimeProvider
     from voiceroom.io import SpeakerSink, WavSink
     from voiceroom.pipeline import Pipeline
@@ -227,36 +265,13 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
     store = _store(args)
     names = store.list()
-    if not names:
-        raise CliError("no signatures enrolled; run `voiceroom enroll` first")
-    sigs = [store.load(n) for n in names]
-    if {s.embedder for s in sigs} != {args.embedder}:
-        raise CliError(
-            f"stored signatures use embedder(s) {sorted({s.embedder for s in sigs})}, "
-            f"but --embedder is {args.embedder!r}; pass --embedder or re-enroll"
-        )
+    sigs = _load_sigs(store, args.embedder)
     if args.mode == "isolation":
         if not args.owner:
             raise CliError("--owner is required in isolation mode")
         if args.owner not in names:
             raise CliError(f"owner {args.owner!r} is not enrolled (enrolled: {', '.join(names)})")
-    try:
-        cohort = None if args.no_cohort else load_default(args.embedder)  # AS-norm when shipped
-    except (ValueError, KeyError, zipfile.BadZipFile) as exc:
-        raise CliError(f"bad cohort file ({exc}); rebuild it or pass --no-cohort") from exc
-    if cohort is not None:
-        print(
-            f"AS-norm cohort active ({len(cohort.embeddings)} windows, threshold "
-            f"{cohort.threshold:g} in z-units)",
-            file=sys.stderr,
-        )
-        if args.threshold is not None:
-            raise CliError("--threshold is cosine-scale; with a cohort file also pass --no-cohort")
-    if args.threshold is not None:
-        threshold = args.threshold
-    else:
-        threshold = cohort.threshold if cohort else threshold_for(args.embedder)
-    scale = cohort.score_scale if cohort else 1.0
+    cohort, threshold, scale = _scoring(args)
     if args.mode == "isolation":
         policy = IsolationPolicy(args.owner, threshold, embedder=args.embedder, score_scale=scale)
     else:
@@ -299,6 +314,207 @@ def cmd_demo(args: argparse.Namespace) -> int:
         print("stopped", file=sys.stderr)
     except RuntimeError as e:  # e.g. sounddevice/PortAudio missing
         raise CliError(str(e)) from e
+    return 0
+
+
+# ---- sessions / tokens / room -------------------------------------------------------------
+
+SESSIONS_ENV = "VOICEROOM_SESSIONS"
+BOT_IDENTITY = "voiceroom-bot"
+
+
+def _sessions(args: argparse.Namespace):
+    from voiceroom.sessions import SessionStore
+
+    sigs = _store(args)
+    root = args.sessions or os.environ.get(SESSIONS_ENV) or sigs.root / "sessions"
+    return SessionStore(root, sigs._key, sigs)
+
+
+def _session(store, sid: str):
+    try:
+        return store.get(sid)
+    except KeyError:
+        raise CliError(f"no session {sid!r}") from None
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    from voiceroom.sessions import SessionError
+
+    store = _sessions(args)
+    try:
+        if args.action == "create":
+            s = store.create_session(args.owner, args.mode, args.unknown, args.room)
+            print(f"{s.id}\t{s.room}")
+        elif args.action == "invite":
+            ttl = {"ttl_s": args.ttl_hours * 3600.0} if args.ttl_hours is not None else {}
+            print(store.invite(_session(store, args.session), args.user, **ttl))
+        elif args.action == "accept":
+            s = store.accept(args.code)
+            print(f"joined session {s.id} ({len(s.members)} members)")
+        elif args.action == "revoke":
+            store.revoke(_session(store, args.session), args.user)
+            print(f"revoked {args.user}")
+        else:
+            for s in store.list():
+                print(f"{s.id}\t{s.mode}\t{s.room}\towner={s.owner}\tmembers={','.join(s.members)}")
+    except SessionError as e:  # includes InviteError
+        raise CliError(str(e)) from e
+    return 0
+
+
+def _livekit_url(args: argparse.Namespace) -> str:
+    from voiceroom.adapters.livekit_room import DEV_URL
+
+    return args.url or os.environ.get("LIVEKIT_URL") or DEV_URL
+
+
+def _need_livekit():
+    try:
+        from voiceroom.adapters import livekit_room
+    except ImportError as e:
+        raise CliError(str(e)) from e
+    return livekit_room
+
+
+def cmd_token(args: argparse.Namespace) -> int:
+    from voiceroom.sessions import SessionError
+
+    store = _sessions(args)
+    _need_livekit()
+    try:
+        print(store.join_token(_session(store, args.session), args.user, _livekit_url(args)))
+    except (SessionError, ValueError) as e:
+        raise CliError(str(e)) from e
+    return 0
+
+
+def _fake_room(path: str, realtime: bool):
+    import json
+
+    from voiceroom.rooms import FakeParticipant, FakeRoom
+
+    try:
+        spec = json.loads(Path(path).read_text())
+        base = Path(path).parent
+        parts = [
+            FakeParticipant.from_wav(
+                p["id"],
+                str(base / p["wav"]),
+                identity=p.get("identity"),
+                attributes=p.get("attributes", {}),
+                join_at=p.get("join_at", 0.0),
+                leave_at=p.get("leave_at"),
+            )  # fmt: skip
+            for p in spec["participants"]
+        ]
+    except (ValueError, KeyError, TypeError, RuntimeError) as e:
+        raise CliError(f"bad --script {path}: {type(e).__name__}") from e
+    return FakeRoom(parts, realtime=realtime)
+
+
+def _room_printer():
+    n = 0
+
+    def on_record(r) -> None:
+        nonlocal n
+        n += 1
+        decision = "committed" if r.verdict.value == "accept" else "dropped"
+        err = f" error={r.error}" if r.error else ""
+        bleed = f" bleed_of={r.bleed_of}" if r.bleed_of else ""
+        print(
+            f"turn {n} t={r.t_start:.2f}-{r.t_end:.2f}s source={r.source_id} "
+            f"claimed={r.claimed_identity or '-'} decision={decision} "
+            f"label={r.speaker or UNKNOWN_LABEL} latency={r.latency_s * 1000:.0f}ms{err}{bleed}",
+            flush=True,
+        )
+
+    return on_record
+
+
+async def _close_after(seconds: float, transport) -> None:
+    await asyncio.sleep(seconds)
+    await transport.close()  # ends the event stream; the agent drains and stops
+
+
+async def _run_room(args, session, store, sigs, scoring, provider) -> int:
+    """Everything that touches the transport runs inside the loop (LiveKit binds to it)."""
+    from voiceroom.room import RoomPipeline
+    from voiceroom.rooms import RoomAgent
+    from voiceroom.sessions import SessionSync
+    from voiceroom.vad import EnergyVAD, SileroVAD
+
+    cohort, threshold, scale = scoring
+    policy_kw = {"threshold": threshold, "embedder": args.embedder, "score_scale": scale}
+    if args.verify_threshold is not None:
+        policy_kw["verify_threshold"] = args.verify_threshold
+    if args.window_drop is not None:
+        policy_kw["window_drop"] = args.window_drop
+
+    if args.transport == "fake":
+        transport = _fake_room(args.script, args.realtime)
+        kick = transport.kick
+    else:
+        lk, url = _need_livekit(), _livekit_url(args)
+        try:
+            transport = lk.LiveKitRoom(url, lk.make_token(url, session.room, BOT_IDENTITY))
+            kick = lk.make_kicker(url, session.room)
+        except ValueError as e:
+            raise CliError(str(e)) from e
+
+    unpaced = args.transport == "fake" and not args.realtime
+    holder: dict = {}
+    pipeline = RoomPipeline(
+        provider,
+        lambda sid, claimed: holder["sync"].policy_factory(**policy_kw)(sid, claimed),
+        _build_matcher(args.embedder, sigs, threshold, cohort),
+        vad_factory=EnergyVAD if args.vad == "energy" else SileroVAD,
+        matcher_factory=functools.partial(_build_matcher, args.embedder, sigs, threshold, cohort),
+        on_record=_room_printer(),
+        # unpaced scripted replay feeds audio far faster than real time: don't overflow
+        **({"max_pending": 1000, "max_inflight_identify": 1000} if unpaced else {}),
+    )
+    agent = RoomAgent(transport, pipeline, provider)
+    holder["sync"] = sync = SessionSync(store, session.id, pipeline, kick, agent=agent)
+    tasks = [asyncio.create_task(sync.run())]
+    if args.duration is not None:
+        tasks.append(asyncio.create_task(_close_after(args.duration, transport)))
+    try:
+        await agent.run()
+    finally:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await sync.sync_once()  # a revocation that landed just before the end
+    return len(sync.kicked)
+
+
+def cmd_room(args: argparse.Namespace) -> int:
+    if args.debug:
+        _debug_logging()
+    from voiceroom.adapters import MockProvider, OpenAIRealtimeProvider
+
+    store = _sessions(args)
+    session = _session(store, args.session)
+    sigs = _load_sigs(store.signatures, args.embedder)
+    scoring = _scoring(args)
+    if args.transport == "fake" and not args.script:
+        raise CliError("--transport fake needs --script (a JSON file of scripted participants)")
+    if args.provider == "openai":
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise CliError("OPENAI_API_KEY is not set")
+        provider = OpenAIRealtimeProvider()
+    else:
+        provider = MockProvider()
+    try:
+        kicked = asyncio.run(_run_room(args, session, store, sigs, scoring, provider))
+    except KeyboardInterrupt:
+        print("stopped", file=sys.stderr)
+        return 0
+    except RuntimeError as e:
+        raise CliError(str(e)) from e
+    if kicked:
+        print(f"removed {kicked} revoked participant(s)", file=sys.stderr)
     return 0
 
 
@@ -358,6 +574,51 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug", action="store_true", help="log which continuity rule dropped a turn + scores"
     )
     m.set_defaults(fn=cmd_demo)
+
+    common.add_argument(
+        "--sessions", help=f"session directory (env {SESSIONS_ENV}; default <store>/sessions)"
+    )
+    se = sub.add_parser("session", help="manage sessions and invites")
+    ss = se.add_subparsers(dest="action", required=True)
+    c = ss.add_parser("create", parents=[common], help="create a session; prints id and room")
+    c.add_argument("--owner", required=True, help="enrolled name")
+    c.add_argument("--mode", choices=["isolation", "collaboration"], default="isolation")
+    c.add_argument("--unknown", choices=["drop", "label"], default="drop")
+    c.add_argument("--room", help="room name (default vr-<id>)")
+    i = ss.add_parser("invite", parents=[common], help="print a single-use invite code")
+    i.add_argument("--session", required=True)
+    i.add_argument("--user", required=True, help="enrolled name")
+    i.add_argument("--ttl-hours", type=float, help="invite lifetime (default 24)")
+    a = ss.add_parser("accept", parents=[common], help="consume an invite code")
+    a.add_argument("--code", required=True)
+    r = ss.add_parser("revoke", parents=[common], help="remove a member")
+    r.add_argument("--session", required=True)
+    r.add_argument("--user", required=True)
+    ss.add_parser("list", parents=[common], help="list sessions")
+    se.set_defaults(fn=cmd_session)
+
+    t = sub.add_parser("token", parents=[common], help="print a LiveKit join token for a member")
+    t.add_argument("--session", required=True)
+    t.add_argument("--user", required=True)
+    t.add_argument("--url", help="LiveKit URL (env LIVEKIT_URL; default local dev server)")
+    t.set_defaults(fn=cmd_token)
+
+    ro = sub.add_parser("room", parents=[common], help="run the room agent for a session")
+    ro.add_argument("--session", required=True)
+    ro.add_argument("--transport", choices=["livekit", "fake"], default="livekit")
+    ro.add_argument("--provider", choices=["openai", "mock"], default="openai")
+    ro.add_argument("--embedder", default=DEFAULT_EMBEDDER)
+    ro.add_argument("--threshold", type=float, help="cosine match threshold (needs --no-cohort)")
+    ro.add_argument("--no-cohort", action="store_true")
+    ro.add_argument("--verify-threshold", type=float, help="1:1 track verification threshold")
+    ro.add_argument("--window-drop", type=float, help="continuity window drop (tuning)")
+    ro.add_argument("--vad", choices=["silero", "energy"], default="silero")
+    ro.add_argument("--url", help="LiveKit URL (env LIVEKIT_URL; default local dev server)")
+    ro.add_argument("--script", help="fake transport: JSON file listing scripted participants")
+    ro.add_argument("--realtime", action="store_true", help="fake transport: wall-clock pacing")
+    ro.add_argument("--duration", type=float, help="leave the room after this many seconds")
+    ro.add_argument("--debug", action="store_true", help="log which continuity rule dropped a turn")
+    ro.set_defaults(fn=cmd_room)
     return p
 
 

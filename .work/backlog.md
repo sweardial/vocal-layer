@@ -245,7 +245,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: RoomAgent stops publishing, flushes the room AudioSource buffer, and calls `provider.interrupt(played_ms)` with the ms actually published, once an accepted turn is confirmed during playback. In rooms, the agent's own published audio is never treated as a participant source. `scripts/smoke/smoke_room_bargein.py` (FakeRoom, MockProvider with a long reply) asserts: a member mid-reply → exactly one interrupt with a plausible played_ms; a stranger or bleed copy → none; and in isolation a non-owner member → none. `make check` green.
   depends: T-043, T-041
 
-- [ ] T-048 | M3 | Add CLI for sessions, join tokens, and the room agent
+- [x] T-048 | M3 | Add CLI for sessions, join tokens, and the room agent
   goal: Expose `voiceroom session create|invite|accept|revoke|list`, `voiceroom token --session S --user U`, and `voiceroom room --session S --transport livekit|fake --provider openai|mock`.
   accept: Subcommands use the stores from T-046. `room` prints one line per turn (source, claimed identity, decision, label, latency) with no audio, embeddings, tokens or invite codes. `--debug` reuses the T-036 rule logging. `scripts/smoke/smoke_cli_room.py` runs via subprocess with `--embedder toy --transport fake --provider mock`: enroll ×3 → session create (collaboration) → invite/accept bob → room on a scripted 3-participant FakeRoom (asserts alice and bob committed, carol dropped/Unknown) → revoke bob → bob dropped. If the LiveKit binary and extra are present, it also runs `room --transport livekit` for one short scripted conversation. `make check` green.
   depends: T-045, T-046, T-047
