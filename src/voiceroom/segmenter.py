@@ -63,6 +63,11 @@ class Segmenter:
         self._preroll: deque[np.ndarray] = deque(maxlen=n_pre)
         self.reset()
 
+    @property
+    def active(self) -> bool:
+        """A turn is open (speech started, not yet ended)."""
+        return self._active
+
     def reset(self) -> None:
         self._preroll.clear()
         self._frames: list[np.ndarray] = []  # active turn, incl. pre-roll

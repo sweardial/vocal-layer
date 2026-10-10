@@ -55,8 +55,21 @@ class RoomAgent:
         self.transport, self.room = transport, room_pipeline
         self._wrapped = _PumpingProvider(provider, transport)
         self.room.provider = self._wrapped
+        self.room.barge_in = self._barge_in
         self._joined: dict[str, ParticipantJoined] = {}
         self._drains: set[asyncio.Task] = set()
+        self._self_ids: set[str] = set()
+
+    async def _barge_in(self) -> None:
+        """An accepted turn is about to be sent while a reply plays: flush the room's audio and
+        tell the provider how much was played. Best effort: never drops the user's turn."""
+        if not self.transport.audio_active():
+            return
+        try:
+            played_ms = self.transport.interrupt_audio()
+            await asyncio.wait_for(self._wrapped.interrupt(played_ms), self.room.send_timeout_s)
+        except Exception:
+            log.warning("barge-in failed")
 
     @property
     def participants(self) -> dict[str, ParticipantJoined]:
@@ -84,6 +97,10 @@ class RoomAgent:
 
     async def _handle_events(self) -> None:
         async for ev in self.transport.events():
+            if self._is_self(ev):  # the agent's own audio is never a speaker
+                if isinstance(ev, TrackAudio):
+                    self._discard(ev)
+                continue
             if isinstance(ev, ParticipantJoined):
                 self._joined[ev.id] = ev
             elif isinstance(ev, TrackAudio):
@@ -91,6 +108,14 @@ class RoomAgent:
             elif isinstance(ev, ParticipantLeft):
                 self._joined.pop(ev.id, None)
                 self.room.remove_source(ev.id)
+
+    def _is_self(self, ev) -> bool:
+        """The transport's own identity (if it declares one) is never a participant."""
+        me = getattr(self.transport, "self_identity", None)
+        if isinstance(ev, ParticipantJoined) and me is not None and ev.identity == me:
+            self._self_ids.add(ev.id)
+        pid = ev.id if isinstance(ev, (ParticipantJoined, ParticipantLeft)) else ev.participant_id
+        return pid in self._self_ids
 
     def _on_track(self, ev: TrackAudio) -> None:
         info = self._joined.get(ev.participant_id)

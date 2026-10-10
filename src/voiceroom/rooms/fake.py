@@ -8,7 +8,13 @@ import numpy as np
 
 from voiceroom.adapters.base import AudioOut
 from voiceroom.audio import load_audio
-from voiceroom.rooms.base import ParticipantJoined, ParticipantLeft, RoomEvent, TrackAudio
+from voiceroom.rooms.base import (
+    ParticipantJoined,
+    ParticipantLeft,
+    PlaybackClock,
+    RoomEvent,
+    TrackAudio,
+)
 
 SAMPLE_RATE = 16000
 CHUNK = 512
@@ -30,7 +36,15 @@ class FakeParticipant:
 
 
 class FakeRoom:
-    def __init__(self, participants: list[FakeParticipant], realtime: bool = False):
+    def __init__(
+        self,
+        participants: list[FakeParticipant],
+        realtime: bool = False,
+        self_identity: str = "voiceroom-bot",
+    ):
+        self.self_identity = self_identity  # the agent's own identity (never a speaker)
+        self.clock = PlaybackClock()
+        self.flushes = 0
         self.participants = sorted(participants, key=lambda p: p.join_at)
         self.realtime = realtime  # pace chunks at wall-clock speed (else as fast as consumed)
         self.published: list[AudioOut] = []
@@ -86,7 +100,17 @@ class FakeRoom:
             yield ev
 
     async def publish_audio(self, audio: AudioOut) -> None:
+        if not self.clock.accept(audio.reply_id):
+            return
         self.published.append(audio)
+        self.clock.add(len(audio.samples) / audio.sample_rate, audio.final)
+
+    def audio_active(self) -> bool:
+        return self.clock.active()
+
+    def interrupt_audio(self) -> int:
+        self.flushes += 1
+        return self.clock.interrupt()
 
     async def kick(self, participant_id: str, identity: str | None = None) -> None:
         """Remove a participant from the room (its stream stops, a ParticipantLeft follows)."""

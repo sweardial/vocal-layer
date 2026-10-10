@@ -19,7 +19,13 @@ import numpy as np
 
 from voiceroom.adapters.base import AudioOut
 from voiceroom.audio import StreamResampler, float_to_pcm16, pcm16_to_float
-from voiceroom.rooms.base import ParticipantJoined, ParticipantLeft, RoomEvent, TrackAudio
+from voiceroom.rooms.base import (
+    ParticipantJoined,
+    ParticipantLeft,
+    PlaybackClock,
+    RoomEvent,
+    TrackAudio,
+)
 
 try:
     from livekit import api, rtc
@@ -81,6 +87,7 @@ class LiveKitRoom:
         self._track: rtc.LocalAudioTrack | None = None
         self._resamplers: dict[int, StreamResampler] = {}
         self._reply_id = -1
+        self._clock = PlaybackClock()
         self._announced: set[str] = set()  # participant sids with a ParticipantJoined emitted
         self._tracks: dict[str, tuple[asyncio.Queue, asyncio.Task]] = {}  # track sid -> pump
         self._closed = False
@@ -176,6 +183,8 @@ class LiveKitRoom:
     async def publish_audio(self, audio: AudioOut) -> None:
         if self._source is None:
             raise RuntimeError("not connected")
+        if not self._clock.accept(audio.reply_id):  # interrupted reply: drop
+            return
         if audio.reply_id != self._reply_id:  # a cut-off reply must not leak into the next
             self._reply_id = audio.reply_id
             self._resamplers.clear()
@@ -190,6 +199,21 @@ class LiveKitRoom:
         for i in range(0, len(pcm), n):
             part = pcm[i : i + n]
             await self._source.capture_frame(rtc.AudioFrame(part.tobytes(), OUT_RATE, 1, len(part)))
+            if audio.reply_id <= self._clock.cancelled:  # barge-in while we waited for the buffer
+                return
+            self._clock.add(len(part) / OUT_RATE, audio.final and i + n >= len(pcm))
+        if not len(pcm):
+            self._clock.add(0.0, audio.final)
+
+    def audio_active(self) -> bool:
+        return self._clock.active()
+
+    def interrupt_audio(self) -> int:
+        played_ms = self._clock.interrupt()
+        self._resamplers.clear()
+        if self._source is not None:
+            self._source.clear_queue()
+        return played_ms
 
     async def close(self) -> None:
         if self._closed:

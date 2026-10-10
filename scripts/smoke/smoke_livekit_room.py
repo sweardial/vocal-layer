@@ -11,6 +11,7 @@ import time
 import numpy as np
 
 from voiceroom.adapters import MockProvider
+from voiceroom.adapters.base import AudioOut
 from voiceroom.adapters.livekit_server import find_binary, run_dev_server
 from voiceroom.embedders import get_embedder
 from voiceroom.enroll import enroll
@@ -131,6 +132,16 @@ async def main() -> None:
             ):
                 assert not agent_task.done(), agent_task
                 await asyncio.sleep(0.1)
+            # barge-in path: a long reply is cut after ~0.7 s; the rest is never published
+            tone = (0.1 * np.sin(2 * np.pi * 440 * np.arange(5 * SR) / SR)).astype(np.float32)
+            pub = asyncio.create_task(bot.publish_audio(AudioOut(tone, SR, True, 99)))
+            await asyncio.sleep(0.7)
+            assert bot.audio_active()
+            played_ms = bot.interrupt_audio()
+            await asyncio.wait_for(pub, 2)  # the in-flight chunk stops at once
+            assert 400 <= played_ms <= 1200 and not bot.audio_active(), played_ms
+            await bot.publish_audio(AudioOut(tone, SR, True, 99))  # cancelled reply: dropped
+            assert not bot.audio_active()
         finally:
             await asyncio.gather(a._smoke_task, b._smoke_task, return_exceptions=True)
             for r in (a, b):

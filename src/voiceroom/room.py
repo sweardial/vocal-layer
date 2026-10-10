@@ -5,7 +5,7 @@ import functools
 import logging
 import time
 from collections import deque
-from collections.abc import AsyncIterable, Callable, Iterable
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -163,6 +163,7 @@ class RoomPipeline:
         max_records: int = MAX_RECORDS,
         bleed: bool = True,
         deliver_gate: Callable[[str, str | None], bool] | None = None,
+        barge_in: Callable[[], Awaitable[None]] | None = None,
     ):
         if isolation not in ("process", "thread"):
             raise ValueError("isolation must be 'process' or 'thread'")
@@ -177,10 +178,14 @@ class RoomPipeline:
         # (claimed identity, label) -> False drops an accepted turn at delivery time (e.g. the
         # speaker was revoked while the turn waited in the commit queue)
         self.deliver_gate = deliver_gate
+        # awaited just before an accepted turn is sent (after bleed/gate checks): stops a reply
+        # that is playing. Best effort; it must not raise.
+        self.barge_in = barge_in
         self._open_deps: dict[str, list] = {}  # source -> copies held until its open turn ends
         self._seen: deque[_Seen] = deque(maxlen=BLEED_HISTORY)
         self.sources: dict[str, _Source] = {}
         self._entries: list[_Entry] = []
+        self._barge_tasks: set[asyncio.Task] = set()
         self._seq = 0
         self._inflight = 0
         self._running = False
@@ -211,11 +216,23 @@ class RoomPipeline:
         )
         offset = self._room_now() if t_offset is None else t_offset
         src = _Source(proc, frames, claimed_identity, offset)
-        proc.bind(self._identify, self._has_room)
+        proc.bind(self._identify, self._has_room, lambda: self._early_barge_in(proc))
         proc.reset()
         self.sources[source_id] = src
         if self._running:
             self._start(source_id, src)
+
+    def _early_barge_in(self, proc: SourceProcessor) -> None:
+        """Speaker confirmed mid-turn: stop the reply now, not when the turn is committed.
+        Skipped while another source is speaking (possible cross-talk bleed): the commit-time
+        call runs after the bleed check."""
+        if self.barge_in is None or any(
+            o.proc is not proc and o.proc.segmenter.active for o in self.sources.values()
+        ):
+            return
+        t = asyncio.create_task(self.barge_in())
+        self._barge_tasks.add(t)
+        t.add_done_callback(self._barge_tasks.discard)
 
     def remove_source(self, source_id: str) -> None:
         """Stop a source and flush its open turn into the commit queue."""
@@ -367,6 +384,8 @@ class RoomPipeline:
             verdict = Verdict.REJECT
         sent = verdict is Verdict.ACCEPT
         if sent:
+            if self.barge_in is not None:
+                await self.barge_in()
             self._sending += 1
             self.max_concurrent_sends = max(self.max_concurrent_sends, self._sending)
             try:
@@ -572,6 +591,8 @@ class RoomPipeline:
         finally:
             self._running = False
             committer.cancel()
+            for t in self._barge_tasks:
+                t.cancel()
             for src in self.sources.values():
                 if src.task is not None:
                     src.task.cancel()

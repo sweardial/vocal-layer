@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 20:49
-Phase: build · unit tests off · 46/52 done · est. API-equivalent cost $77.76
+Voice Room · 2026-10-09 21:04
+Phase: build · unit tests off · 47/52 done · est. API-equivalent cost $80.69
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -49,8 +49,8 @@ Phase: build · unit tests off · 46/52 done · est. API-equivalent cost $77.76
 ✅ T-043 Define room transport interface with in-memory FakeRoom
 ✅ T-044 Fetch a pinned local LiveKit server and prove an offline loopback
 ✅ T-045 Implement LiveKit room transport against the local server
-🔨 T-046 Add sessions and invites with membership-driven policy
-⬜ T-047 Support barge-in and reply playback in rooms
+✅ T-046 Add sessions and invites with membership-driven policy
+🔨 T-047 Support barge-in and reply playback in rooms
 ⬜ T-048 Add CLI for sessions, join tokens, and the room agent
 ⬜ T-049 Measure end-to-end room latency through the local LiveKit server
 ⬜ T-050 Write multi-device room demo checklist and request human live test
@@ -60,6 +60,7 @@ Phase: build · unit tests off · 46/52 done · est. API-equivalent cost $77.76
 ## Recent commits
 
 ```
+a156957 T-046: Add sessions and invites with membership-driven policy
 5a2e5be T-045: Implement LiveKit room transport against the local server
 2bbc12c T-044: Fetch a pinned local LiveKit server and prove an offline loopback
 ad9ac31 T-043: Define room transport interface with in-memory FakeRoom
@@ -69,5 +70,4 @@ d7344fb T-040: Add track-identity verification policy (verified and shared track
 f4e012a T-039: Build multi-source room pipeline with serialized commits
 3501304 T-038: Extract a per-source turn processor from Pipeline
 fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
-44c833b plan: update backlog
 ```
