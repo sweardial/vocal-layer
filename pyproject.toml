@@ -26,6 +26,12 @@ ecapa = [
     "speechbrain==1.0.3",
 ]
 
+# Pinned LiveKit rtc + server API (D-018); the local server binary comes from scripts/fetch_livekit.py.
+livekit = [
+    "livekit==1.1.20",
+    "livekit-api==1.2.1",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
