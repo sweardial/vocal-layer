@@ -220,13 +220,8 @@ def sweep_scores(st: Stats, conv: RoomConv, matcher: Matcher, emb, claims: dict)
         (st.sweep_owner if s.kind == "own" else st.sweep_imp).append(row)
 
 
-def build(
-    corpus, emb, n_conv, n_turns, seed, speed, bleed, verify, jobs, n_enroll=N_ENROLL_UTTS,
-    n_stream=None, sweep=False,
-):  # fmt: skip
-    """Generate `n_conv` conversations; stream the first `n_stream`; score sweeps if `sweep`."""
-    st = Stats()
-    n_stream = n_conv if n_stream is None else n_stream
+def make_work(corpus, emb, n_conv, n_turns, seed, bleed, n_enroll=N_ENROLL_UTTS):
+    """`n_conv` conversations as (conv, signatures, claims, enrolled members)."""
     all_spk = corpus.speakers()
     rng = np.random.default_rng([seed, 19])
     sig_cache, work = {}, []
@@ -245,6 +240,17 @@ def build(
         )
         claims = {**own, MIC: None}
         work.append((conv, sigs, claims, enrolled))
+    return work
+
+
+def build(
+    corpus, emb, n_conv, n_turns, seed, speed, bleed, verify, jobs, n_enroll=N_ENROLL_UTTS,
+    n_stream=None, sweep=False,
+):  # fmt: skip
+    """Generate `n_conv` conversations; stream the first `n_stream`; score sweeps if `sweep`."""
+    st = Stats()
+    n_stream = n_conv if n_stream is None else n_stream
+    work = make_work(corpus, emb, n_conv, n_turns, seed, bleed, n_enroll)
     matchers = [Matcher(w[1], threshold=threshold_for(emb.name), embedder=emb) for w in work]
     for (conv, _, claims, _), mt in zip(work, matchers, strict=True):
         if sweep:
@@ -385,12 +391,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--embedder", default="wespeaker-resnet34")
     p.add_argument("--out", default="reports")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--conversations", type=int, default=4, help="per variant")
+    p.add_argument(
+        "--conversations", type=int, default=4, help="per variant (livekit: total, at least 5)"
+    )
     p.add_argument("--sweep-conversations", type=int, default=12, help="verify sweep (no stream)")
     p.add_argument("--turns", type=int, default=12)
     p.add_argument("--speed", type=float, default=1.0, help="pacing factor; 1 = realtime")
     p.add_argument("--jobs", type=int, default=4, help="conversations streamed concurrently")
     p.add_argument("--verify", type=float, default=None, help="default: config value")
+    p.add_argument(
+        "--transport",
+        choices=("fake", "livekit"),
+        default="fake",
+        help="livekit: only measure latency through a local livekit-server (T-049) and write "
+        "its section into the existing report",
+    )
     a = p.parse_args(argv)
     root = Path(a.data)
     if not (root / a.subset).is_dir() or not DEFAULT_MODEL.exists():
@@ -399,6 +414,12 @@ def main(argv: list[str] | None = None) -> int:
     emb = get_embedder(a.embedder)
     base = LibriSpeechCorpus(root, a.subset)
     emb.embed(np.zeros(16000, np.float32))
+    if a.transport == "livekit":
+        from voiceroom.bench import room_livekit
+
+        probe = TrackPolicy("shared", ["x"], embedder=emb.name)
+        verify = a.verify if a.verify is not None else probe.threshold - VERIFY_THRESHOLD_RELAX
+        return room_livekit.bench(base, emb, a, verify, Path(a.out))
     t0 = time.monotonic()
     runs = {}
     for name, bleed, nb in VARIANTS:

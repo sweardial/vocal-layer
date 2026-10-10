@@ -250,7 +250,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: Subcommands use the stores from T-046. `room` prints one line per turn (source, claimed identity, decision, label, latency) with no audio, embeddings, tokens or invite codes. `--debug` reuses the T-036 rule logging. `scripts/smoke/smoke_cli_room.py` runs via subprocess with `--embedder toy --transport fake --provider mock`: enroll ×3 → session create (collaboration) → invite/accept bob → room on a scripted 3-participant FakeRoom (asserts alice and bob committed, carol dropped/Unknown) → revoke bob → bob dropped. If the LiveKit binary and extra are present, it also runs `room --transport livekit` for one short scripted conversation. `make check` green.
   depends: T-045, T-046, T-047
 
-- [ ] T-049 | M3 | Measure end-to-end room latency through the local LiveKit server
+- [x] T-049 | M3 | Measure end-to-end room latency through the local LiveKit server
   goal: Report end-of-speech → commit and commit → first published reply audio through the real LiveKit transport, so the 700 ms target is checked with WebRTC jitter buffering in the path.
   accept: `python -m voiceroom.bench.room --transport livekit` (part of `make bench` when the binary and extra are present) streams ≥ 5 LibriSpeech multi-track conversations through the local server in realtime. It writes a "LiveKit transport" section in `reports/room-wespeaker-resnet34.md` with commit latency p50/p95 versus FakeRoom, transport-added delay, and the reply round trip with MockProvider. If p95 ≥ 700 ms, it adds a follow-up task naming the dominant stage. The key numbers go in summary.md. `make check` green.
   depends: T-042, T-045

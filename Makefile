@@ -13,3 +13,6 @@ bench:
 	uv run $(BENCH_UV) python -m voiceroom.bench --corpus librispeech --embedder all
 	uv run $(BENCH_UV) python -m voiceroom.bench.pipeline
 	uv run $(BENCH_UV) python -m voiceroom.bench.room
+	@if uv run --no-sync python -c "import sys; import livekit.rtc; from voiceroom.adapters.livekit_server import find_binary; sys.exit(find_binary() is None)" 2>/dev/null; then \
+		uv run $(BENCH_UV) --extra livekit python -m voiceroom.bench.room --transport livekit; \
+	else echo "skip LiveKit room bench: livekit extra or livekit-server missing"; fi

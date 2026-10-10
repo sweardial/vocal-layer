@@ -82,3 +82,38 @@ Whole-turn 1:1 score of the claimed member, no VAD, no continuity check; identif
 | bleed+narrowband | 0.225 (-0.125) | 0.0% (0/52) | 0.0% (0/17) | 0.0% (0/13) | 0.0% (0/4) |
 | bleed+narrowband | 0.200 (-0.15) | 0.0% (0/52) | 0.0% (0/17) | 0.0% (0/13) | 0.0% (0/4) |
 | bleed+narrowband | 0.150 (-0.2) | 0.0% (0/52) | 0.0% (0/17) | 0.0% (0/13) | 0.0% (0/4) |
+
+## LiveKit transport
+
+5 bleed-variant conversations x 12 turns (seed 0), each with 3 own-mic tracks + 1 shared mic, streamed in realtime, one at a time, through RoomAgent + SileroVAD + MockProvider into a local `livekit-server --dev` (localhost, no TURN), against the same run over FakeRoom. Wall time 348s.
+
+| path | n | p50 | p95 |
+|---|---|---|---|
+| commit latency, FakeRoom (end of speech -> commit) | 38 | 409 ms | 486 ms |
+| commit latency, LiveKit (end of speech -> commit) | 37 | 512 ms | 558 ms |
+
+Commit latency is wall clock from the last speech sample leaving the publisher to `send_turn` (queue wait included), so the LiveKit row has the whole WebRTC path in it.
+
+Where the time goes (LiveKit; the per-turn pipeline latency is the stream-clock `endpoint + compute` from the room pipeline):
+
+| stage | n | p50 | p95 |
+|---|---|---|---|
+| endpoint (segmenter hangover) | 37 | 384 ms | 384 ms |
+| compute (identify + queue wait) | 37 | 57 ms | 196 ms |
+|   of which queue wait | 37 | 5 ms | 78 ms |
+| transport-added (commit latency - pipeline latency, per turn) | 37 | 65 ms | 147 ms |
+| transport-added, FakeRoom (VAD end vs true end; the floor) | 38 | -26 ms | 51 ms |
+
+Transport-added delay, LiveKit minus FakeRoom: p50 +103 ms, p95 +72 ms.
+
+Reply round trip with MockProvider (commit -> reply audio):
+
+| point | n | p50 | p95 |
+|---|---|---|---|
+| FakeRoom: first audio published | 62 | 0 ms | 1 ms |
+| LiveKit: first audio published (handed to the SDK) | 62 | 0 ms | 1 ms |
+| LiveKit: first audio heard by a listener participant | 55 | 51 ms | 57 ms |
+
+LiveKit replies: 62 commits, 7 not heard within 3 s (cut by barge-in or the next turn); 25 commits (FakeRoom 24) did not end at the end of an own/shared segment (split inside a segment, impostor, or ending more than 0.5 s from it) and are not in the latency rows.
+
+LiveKit commit p95 558 ms vs 700 ms: **MEETS**.

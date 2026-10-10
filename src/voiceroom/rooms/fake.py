@@ -1,6 +1,7 @@
 """FakeRoom: scripted in-memory room. Participants join/leave at set room times and stream audio."""
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
@@ -64,6 +65,7 @@ class FakeRoom:
         live: list[tuple[FakeParticipant, asyncio.Queue, int, int]] = []  # p, q, pos, end
         tick = 0
         dt = CHUNK / SAMPLE_RATE
+        start = time.monotonic()
         try:
             while pending or live:
                 now = tick * dt
@@ -91,7 +93,10 @@ class FakeRoom:
                             self._events.put_nowait(ParticipantLeft(p.id))
                 live = nxt
                 tick += 1
-                await asyncio.sleep(dt if self.realtime else 0)
+                # deadline pacing: sleeping a flat dt per chunk drifts slower than realtime
+                await asyncio.sleep(
+                    max(0.0, start + tick * dt - time.monotonic()) if self.realtime else 0
+                )
         finally:
             self._events.put_nowait(None)
 
