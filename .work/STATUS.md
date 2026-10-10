@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 20:31
-Phase: build · unit tests off · 44/52 done · est. API-equivalent cost $75.88
+Voice Room · 2026-10-09 20:38
+Phase: build · unit tests off · 45/52 done · est. API-equivalent cost $76.60
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -47,8 +47,8 @@ Phase: build · unit tests off · 44/52 done · est. API-equivalent cost $75.88
 ✅ T-041 Suppress cross-talk bleed between co-located microphones
 ✅ T-042 Benchmark room isolation and attribution on LibriSpeech multi-track audio
 ✅ T-043 Define room transport interface with in-memory FakeRoom
-🔨 T-044 Fetch a pinned local LiveKit server and prove an offline loopback
-⬜ T-045 Implement LiveKit room transport against the local server
+✅ T-044 Fetch a pinned local LiveKit server and prove an offline loopback
+🔨 T-045 Implement LiveKit room transport against the local server
 ⬜ T-046 Add sessions and invites with membership-driven policy
 ⬜ T-047 Support barge-in and reply playback in rooms
 ⬜ T-048 Add CLI for sessions, join tokens, and the room agent
@@ -60,6 +60,7 @@ Phase: build · unit tests off · 44/52 done · est. API-equivalent cost $75.88
 ## Recent commits
 
 ```
+2bbc12c T-044: Fetch a pinned local LiveKit server and prove an offline loopback
 ad9ac31 T-043: Define room transport interface with in-memory FakeRoom
 261fd09 T-042: Benchmark room isolation and attribution on LibriSpeech multi-track audio
 dd6fee9 T-041: Suppress cross-talk bleed between co-located microphones
@@ -69,5 +70,4 @@ f4e012a T-039: Build multi-source room pipeline with serialized commits
 fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
 44c833b plan: update backlog
 7e5ed39 T-036: Log which continuity rule fired in the live demo
-2bfc686 T-035: Reduce owner false-reject on real mic audio
 ```
