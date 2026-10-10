@@ -162,6 +162,7 @@ class RoomPipeline:
         on_record: Callable[[RoomTurnRecord], None] | None = None,
         max_records: int = MAX_RECORDS,
         bleed: bool = True,
+        deliver_gate: Callable[[str, str | None], bool] | None = None,
     ):
         if isolation not in ("process", "thread"):
             raise ValueError("isolation must be 'process' or 'thread'")
@@ -173,6 +174,9 @@ class RoomPipeline:
         self.start_timeout_s = start_timeout_s
         self.on_record, self.records = on_record, deque(maxlen=max_records)
         self.bleed = bleed
+        # (claimed identity, label) -> False drops an accepted turn at delivery time (e.g. the
+        # speaker was revoked while the turn waited in the commit queue)
+        self.deliver_gate = deliver_gate
         self._open_deps: dict[str, list] = {}  # source -> copies held until its open turn ends
         self._seen: deque[_Seen] = deque(maxlen=BLEED_HISTORY)
         self.sources: dict[str, _Source] = {}
@@ -354,7 +358,14 @@ class RoomPipeline:
 
     async def _deliver(self, e: _Entry, dt: DecidedTurn, wait: float) -> bool:
         """Send an accepted turn (one at a time) and record it; True if it was sent."""
-        sent = dt.decision.verdict is Verdict.ACCEPT
+        verdict = dt.decision.verdict
+        if (
+            verdict is Verdict.ACCEPT
+            and self.deliver_gate
+            and not self.deliver_gate(e.claimed, dt.label)
+        ):
+            verdict = Verdict.REJECT
+        sent = verdict is Verdict.ACCEPT
         if sent:
             self._sending += 1
             self.max_concurrent_sends = max(self.max_concurrent_sends, self._sending)
@@ -370,7 +381,7 @@ class RoomPipeline:
                 self._sending -= 1
             if self.bleed:
                 self._remember(e, dt)
-        self._emit(self._record(e, dt, wait, dt.decision.verdict, None))
+        self._emit(self._record(e, dt, wait, verdict, None))
         return sent
 
     async def _resolve(self, e: _Entry, covered: bool) -> None:

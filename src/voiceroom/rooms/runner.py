@@ -58,6 +58,11 @@ class RoomAgent:
         self._joined: dict[str, ParticipantJoined] = {}
         self._drains: set[asyncio.Task] = set()
 
+    @property
+    def participants(self) -> dict[str, ParticipantJoined]:
+        """Connected participants (by transport id), with or without a published track."""
+        return dict(self._joined)
+
     async def run(self) -> None:
         """Run until the transport's event stream ends, then drain queued turns and replies."""
         await self.transport.connect()

@@ -12,6 +12,7 @@ import logging
 import os
 import warnings
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from urllib.parse import urlparse
 
 import numpy as np
@@ -30,6 +31,7 @@ log = logging.getLogger(__name__)
 IN_RATE = 16000
 OUT_RATE = 24000  # provider audio (OpenAI realtime) is 24 kHz
 FRAME_MS = 10
+DEFAULT_TTL_S = 6 * 3600.0
 TRACK_QUEUE_CHUNKS = 500  # ~5 s of 10 ms frames; beyond that the oldest audio is dropped
 DEV_URL = "ws://127.0.0.1:7880"
 DEV_KEY, DEV_SECRET = "devkey", "secret"  # `livekit-server --dev`; only used for localhost
@@ -48,6 +50,7 @@ def make_token(
     *,
     api_key: str | None = None,
     api_secret: str | None = None,
+    ttl_s: float | None = None,
 ) -> str:
     """Join token for `room`. Keys default to $LIVEKIT_API_KEY/$LIVEKIT_API_SECRET; the
     `--dev` pair is allowed only for a localhost `url`."""
@@ -64,6 +67,7 @@ def make_token(
             .with_identity(identity)
             .with_attributes(attributes or {})
             .with_grants(api.VideoGrants(room_join=True, room=room))
+            .with_ttl(timedelta(seconds=ttl_s or DEFAULT_TTL_S))
             .to_jwt()
         )
 
@@ -221,3 +225,34 @@ def _put_latest(q: asyncio.Queue, item: np.ndarray | None) -> bool:
 async def _drain(q: asyncio.Queue) -> AsyncIterator[np.ndarray]:
     while (chunk := await q.get()) is not None:
         yield chunk
+
+
+def make_kicker(
+    url: str,
+    room: str,
+    *,
+    api_key: str | None = None,
+    api_secret: str | None = None,
+):
+    """`async kick(participant_id, identity)` that removes a participant via the LiveKit
+    RoomService (credentials as for `make_token`)."""
+    key = api_key or os.environ.get("LIVEKIT_API_KEY")
+    secret = api_secret or os.environ.get("LIVEKIT_API_SECRET")
+    if not key or not secret:
+        if not _is_local(url):
+            raise ValueError("set LIVEKIT_API_KEY and LIVEKIT_API_SECRET for a non-local server")
+        key, secret = DEV_KEY, DEV_SECRET
+    http = url.replace("ws://", "http://", 1).replace("wss://", "https://", 1)
+
+    async def kick(participant_id: str, identity: str) -> None:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="The HMAC key")
+            lk = api.LiveKitAPI(http, key, secret)
+        try:
+            await lk.room.remove_participant(
+                api.RoomParticipantIdentity(room=room, identity=identity)
+            )
+        finally:
+            await lk.aclose()
+
+    return kick

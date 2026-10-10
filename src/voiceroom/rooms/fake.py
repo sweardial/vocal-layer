@@ -35,6 +35,8 @@ class FakeRoom:
         self.realtime = realtime  # pace chunks at wall-clock speed (else as fast as consumed)
         self.published: list[AudioOut] = []
         self.connected = False
+        self.kicked: list[str] = []
+        self.kicked_identities: list[str | None] = []
         self._events: asyncio.Queue[RoomEvent | None] = asyncio.Queue()
         self._driver: asyncio.Task | None = None
 
@@ -62,7 +64,9 @@ class FakeRoom:
                     live.append((p, q, 0, end))
                 nxt = []
                 for p, q, pos, end in live:
-                    if pos < end:
+                    if p.id in self.kicked:  # removed by the agent: the track just stops
+                        self._events.put_nowait(ParticipantLeft(p.id))
+                    elif pos < end:
                         await q.put(p.audio[pos : min(pos + CHUNK, end)].astype(np.float32))
                         nxt.append((p, q, pos + CHUNK, end))
                     else:
@@ -83,6 +87,11 @@ class FakeRoom:
 
     async def publish_audio(self, audio: AudioOut) -> None:
         self.published.append(audio)
+
+    async def kick(self, participant_id: str, identity: str | None = None) -> None:
+        """Remove a participant from the room (its stream stops, a ParticipantLeft follows)."""
+        self.kicked.append(participant_id)
+        self.kicked_identities.append(identity)
 
     async def close(self) -> None:
         self.connected = False
