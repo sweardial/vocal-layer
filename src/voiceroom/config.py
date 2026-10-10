@@ -66,12 +66,16 @@ CONTINUITY_MIN_S = 2.0
 # Track-identity verification (policy.TrackPolicy "verified"): the claimed member's score only has
 # to clear the identification threshold minus this (cosine units; a 1:1 check has one hypothesis,
 # so a looser operating point than open-set ID). A mismatch needs a *confident* match to another
-# member, i.e. the full identification threshold. UNCALIBRATED: T-042 (track-identity bench)
-# will set both from owner-on-own-track FRR vs other-member / stranger FAR.
+# member, i.e. the full identification threshold. Calibrated in T-042 (D-019, bench.room sweep):
+# owner FR and impostor accept are both 0 for relax 0..0.15 (wespeaker), strangers start to pass
+# at 0.2; 0.05 sits mid-plateau.
 VERIFY_THRESHOLD_RELAX = 0.05
 # What to do with a turn that confidently matches another member on a claimed track:
 # "relabel" (forward under the matched member's name) or "drop".
 TRACK_ON_MISMATCH = "drop"
+# Consecutive under-floor windows that reject a verified-track turn. D-019: 3 cuts narrowband
+# owner FR but lets stranger tails through (unmeasured), so it stays 2.
+TRACK_LOW_RUN = 2
 
 
 def threshold_for(embedder_name: str) -> float:

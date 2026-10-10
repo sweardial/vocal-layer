@@ -12,3 +12,4 @@ test:
 bench:
 	uv run $(BENCH_UV) python -m voiceroom.bench --corpus librispeech --embedder all
 	uv run $(BENCH_UV) python -m voiceroom.bench.pipeline
+	uv run $(BENCH_UV) python -m voiceroom.bench.room

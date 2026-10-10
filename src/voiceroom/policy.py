@@ -10,6 +10,7 @@ from .config import (
     DEEP_BAD_RUN,
     DEEP_BUFFER,
     FALLBACK_WINDOW_BAD_RUN,
+    TRACK_LOW_RUN,
     TRACK_ON_MISMATCH,
     VERIFY_THRESHOLD_RELAX,
     threshold_for,
@@ -180,7 +181,7 @@ def _continuity_rule(self, matches: list, who: str, k: float, short: bool) -> st
         ]  # same floor as `bad`, no rival needed (owner-only enrollment)
         if _run(others, need):
             return "short-foreign-run"
-        return "short-low-run" if _run(low, 2) else None
+        return "short-low-run" if _run(low, getattr(self, "short_low_run", 2)) else None
     if foreign:
         return "foreign-named"
     scored = [f for f in bad if f is not None]
@@ -416,6 +417,7 @@ class _Lenient:
     """View of a TrackPolicy with the attributes `_continuity_rule` reads."""
 
     short_foreign_run = 2
+    short_low_run = TRACK_LOW_RUN
 
     def __init__(self, p: TrackPolicy):
         self.threshold = p.verify_threshold if p.mode == "verified" else p.threshold

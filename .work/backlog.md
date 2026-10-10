@@ -215,7 +215,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: `voiceroom/room.py` has a bleed detector over concurrent turns from different sources. It uses time overlap (≥ 50 %), level difference and voice match to the other track's claimed identity, and drops the copy on the quieter, non-matching track. It never drops a turn whose voice verifies as its own track's owner. `voiceroom.synth`/conversations gain a bleed option (a copy of speaker A in B's track at −10…−20 dB, 5–40 ms delay, with noise). `scripts/smoke/smoke_room_bleed.py` asserts: no duplicate commits at −12 dB bleed; true simultaneous speech by A and B on their own tracks yields two commits; and with bleed off, results match smoke_room_mux. `make check` green.
   depends: T-040
 
-- [ ] T-042 | M3 | Benchmark room isolation and attribution on LibriSpeech multi-track audio
+- [x] T-042 | M3 | Benchmark room isolation and attribution on LibriSpeech multi-track audio
   goal: Measure verified-track owner FR, impostor-on-track catch rate, bleed duplicate rate and attribution with real models, then calibrate the T-040/T-041 thresholds.
   accept: `python -m voiceroom.bench.room` (run by `make bench`) builds multi-track LibriSpeech conversations (3 participants, optional bleed at −12 dB, impostor turns on a member's track, a shared-mic track, optional narrowband channel per D-017) and streams them through RoomPipeline with SileroVAD, wespeaker and MockProvider. It writes `reports/room-wespeaker-resnet34.md` with: owner FR on own track by length bucket (target < 5 % for ≥ 1 s), impostor accept rate, bleed duplicate rate, attribution accuracy, and commit latency p50/p95 including queue wait (target p95 < 700 ms). The verify threshold is set from it and recorded in a new D-0xx. Bench runtime < 5 min. `smoke_room_bench.py` runs a 1-conversation version or SKIPs if assets are absent. `make check` green.
   depends: T-040, T-041
@@ -264,3 +264,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   goal: A source that stops sending frames (muted) keeps its room clock behind; stamp frames with capture time so turn times and commit order stay right (needed by T-041 overlap/bleed test).
   accept: smoke with a source that pauses frames mid-run; its later turns get correct room times.
   depends: T-039
+- [ ] T-051 | M3 | Add stranger-tail turns to the room bench and fix narrowband owner FR
+  goal: bench.room misses owner FR < 5 % on narrowband (3/17, D-019). Add owner-then-stranger/revoked spliced turns on verified tracks, then retune TRACK_LOW_RUN (3 cut FR to ~5 % but may leak tails) and the lenient rule, and raise n (more conversations if runtime allows).
+  accept: report shows owner FR >= 1 s < 5 % on narrowband and stranger-tail accept alongside; smoke asserts a stranger tail is rejected on a verified track; `make check` green.
+  depends: T-042
