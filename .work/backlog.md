@@ -255,7 +255,7 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   accept: `python -m voiceroom.bench.room --transport livekit` (part of `make bench` when the binary and extra are present) streams ≥ 5 LibriSpeech multi-track conversations through the local server in realtime. It writes a "LiveKit transport" section in `reports/room-wespeaker-resnet34.md` with commit latency p50/p95 versus FakeRoom, transport-added delay, and the reply round trip with MockProvider. If p95 ≥ 700 ms, it adds a follow-up task naming the dominant stage. The key numbers go in summary.md. `make check` green.
   depends: T-042, T-045
 
-- [ ] T-050 | M3 | Write multi-device room demo checklist and request human live test
+- [!] T-050 | M3 | Write multi-device room demo checklist and request human live test
   goal: Have the human verify a real multi-mic session (2–3 people on separate devices, plus one co-located pair for bleed), including the M1 items still unverified live: barge-in, collaboration attribution, and T-036 rule logging.
   accept: `docs/demo-room.md` and `scripts/live/run_room_demo.sh` give exact macOS steps: `uv sync --extra livekit`, `fetch_livekit.py` (or LiveKit Cloud), enroll, session create/invite/accept, `voiceroom room --transport livekit --provider openai --debug`, and how participants join (token via `voiceroom token`, and a browser client URL). They also include a script of who says what and the expected outcome per step (isolation, collaboration, impostor on a member's device, co-located bleed, barge-in, revoke) and a results form. `.work/tasks/T-050/needs_human.md` asks one question: local server on the Mac's LAN vs a LiveKit Cloud project (keys in `.env.agent`), with a recommendation. `make check` green.
   depends: T-048, T-049

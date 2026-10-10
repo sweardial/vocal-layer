@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 22:05
-Phase: build · unit tests off · 49/52 done · est. API-equivalent cost $87.26
+Voice Room · 2026-10-09 23:02
+Phase: build · unit tests off · 50/52 done · est. API-equivalent cost $89.68
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -52,14 +52,15 @@ Phase: build · unit tests off · 49/52 done · est. API-equivalent cost $87.26
 ✅ T-046 Add sessions and invites with membership-driven policy
 ✅ T-047 Support barge-in and reply playback in rooms
 ✅ T-048 Add CLI for sessions, join tokens, and the room agent
-🔨 T-049 Measure end-to-end room latency through the local LiveKit server
-⬜ T-050 Write multi-device room demo checklist and request human live test
+✅ T-049 Measure end-to-end room latency through the local LiveKit server
+🔨 T-050 Write multi-device room demo checklist and request human live test
 ⬜ T-051 Add stranger-tail turns to the room bench and fix narrowband owner FR
 ```
 
 ## Recent commits
 
 ```
+02e6302 T-049: Measure end-to-end room latency through the local LiveKit server
 4bde23c T-048: Add CLI for sessions, join tokens, and the room agent
 7010ee0 T-047: Support barge-in and reply playback in rooms
 a156957 T-046: Add sessions and invites with membership-driven policy
@@ -69,5 +70,4 @@ ad9ac31 T-043: Define room transport interface with in-memory FakeRoom
 261fd09 T-042: Benchmark room isolation and attribution on LibriSpeech multi-track audio
 dd6fee9 T-041: Suppress cross-talk bleed between co-located microphones
 d7344fb T-040: Add track-identity verification policy (verified and shared tracks)
-f4e012a T-039: Build multi-source room pipeline with serialized commits
 ```
