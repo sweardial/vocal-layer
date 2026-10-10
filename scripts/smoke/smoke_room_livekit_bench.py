@@ -23,7 +23,7 @@ from voiceroom.embedders import get_embedder  # noqa: E402
 from voiceroom.eval.corpus import SynthCorpus  # noqa: E402
 from voiceroom.vad import EnergyVAD  # noqa: E402
 
-R.LENGTHS = (1.3, 1.8)  # short turns: the smoke streams in realtime
+R.LENGTHS = R.TAIL_LENGTHS = (1.3, 1.8)  # short turns: the smoke streams in realtime
 RL.VAD_FACTORY = EnergyVAD
 RL.SETTLE_S = 1.0
 emb = get_embedder("toy")

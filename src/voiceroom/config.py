@@ -73,9 +73,11 @@ VERIFY_THRESHOLD_RELAX = 0.05
 # What to do with a turn that confidently matches another member on a claimed track:
 # "relabel" (forward under the matched member's name) or "drop".
 TRACK_ON_MISMATCH = "drop"
-# Consecutive under-floor windows that reject a verified-track turn. D-019: 3 cuts narrowband
-# owner FR but lets stranger tails through (unmeasured), so it stays 2.
-TRACK_LOW_RUN = 2
+# Consecutive under-floor windows that reject a verified-track turn. D-020: 3 cuts narrowband
+# owner FR to ~5 % and the room bench (stranger-tail turns) still rejects every tail.
+TRACK_LOW_RUN = 3
+# ... or this many at the very end of the turn (a stranger tail after the owner).
+TRACK_TAIL_LOW_RUN = 2
 
 
 def threshold_for(embedder_name: str) -> float:

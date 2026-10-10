@@ -12,6 +12,7 @@ from .config import (
     FALLBACK_WINDOW_BAD_RUN,
     TRACK_LOW_RUN,
     TRACK_ON_MISMATCH,
+    TRACK_TAIL_LOW_RUN,
     VERIFY_THRESHOLD_RELAX,
     threshold_for,
     window_bad_run_for,
@@ -181,7 +182,15 @@ def _continuity_rule(self, matches: list, who: str, k: float, short: bool) -> st
         ]  # same floor as `bad`, no rival needed (owner-only enrollment)
         if _run(others, need):
             return "short-foreign-run"
-        return "short-low-run" if _run(low, getattr(self, "short_low_run", 2)) else None
+        if _run(low, getattr(self, "short_low_run", 2)):
+            return "short-low-run"
+        # a stranger tail after the owner: the turn ends in under-floor windows
+        end = 0
+        for f in reversed(low):
+            if not f:
+                break
+            end += 1
+        return "short-tail-low-run" if end >= getattr(self, "short_tail_low_run", 99) else None
     if foreign:
         return "foreign-named"
     scored = [f for f in bad if f is not None]
@@ -418,6 +427,7 @@ class _Lenient:
 
     short_foreign_run = 2
     short_low_run = TRACK_LOW_RUN
+    short_tail_low_run = TRACK_TAIL_LOW_RUN
 
     def __init__(self, p: TrackPolicy):
         self.threshold = p.verify_threshold if p.mode == "verified" else p.threshold

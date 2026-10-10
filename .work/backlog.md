@@ -264,7 +264,11 @@ Context (see D-018): the pipeline is single-stream today. M3 adds a multi-source
   goal: A source that stops sending frames (muted) keeps its room clock behind; stamp frames with capture time so turn times and commit order stay right (needed by T-041 overlap/bleed test).
   accept: smoke with a source that pauses frames mid-run; its later turns get correct room times.
   depends: T-039
-- [ ] T-051 | M3 | Add stranger-tail turns to the room bench and fix narrowband owner FR
+- [!] T-051 | M3 | Add stranger-tail turns to the room bench and fix narrowband owner FR
   goal: bench.room misses owner FR < 5 % on narrowband (3/17, D-019). Add owner-then-stranger/revoked spliced turns on verified tracks, then retune TRACK_LOW_RUN (3 cut FR to ~5 % but may leak tails) and the lenient rule, and raise n (more conversations if runtime allows).
   accept: report shows owner FR >= 1 s < 5 % on narrowband and stranger-tail accept alongside; smoke asserts a stranger tail is rejected on a verified track; `make check` green.
   depends: T-042
+- [ ] T-052 | M3 | Verify the tail of a verified-track turn separately before forwarding
+  goal: stranger tails of < 1 s after the owner still leak at TRACK_LOW_RUN 3 (D-020). Split the turn at the first under-floor run and verify/forward only the owner part, then re-measure with the room bench tail turns.
+  accept: stranger-tail accept 0 on narrowband with owner FR >= 1 s < 5 %; `make check` green.
+  depends: T-051

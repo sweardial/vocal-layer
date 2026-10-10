@@ -38,7 +38,7 @@ from voiceroom.bench.pipeline import (
 )
 from voiceroom.bench.run import enroll_speakers
 from voiceroom.bench.windows import NarrowbandCorpus
-from voiceroom.config import VERIFY_THRESHOLD_RELAX, threshold_for
+from voiceroom.config import TRACK_LOW_RUN, VERIFY_THRESHOLD_RELAX, threshold_for
 from voiceroom.embedders import get_embedder
 from voiceroom.eval.conversations import split_utterances
 from voiceroom.eval.corpus import LibriSpeechCorpus
@@ -54,7 +54,11 @@ MIC = "mic"  # the shared-mic track
 OWN = ("p1", "p2", "p3")  # participants with their own mic
 SHARED = ("s1", "s2")  # members on the shared mic
 LENGTHS = (0.7, 1.3, 1.8, 2.5, 3.5, 5.0)  # crop targets (s), so every length bucket gets data
-P_IMPOSTOR, P_SHARED = 0.2, 0.2
+P_IMPOSTOR, P_SHARED, P_TAIL = 0.2, 0.2, 0.25
+TAIL_LENGTHS = (1.3, 1.8, 2.5)  # owner part of a spliced turn (s)
+P_TAIL_STRANGER = 0.75  # share of tails spoken by the stranger (rest: another member)
+STRANGER_TAIL_LENGTHS = (0.6, 0.8, 1.0, 1.3, 1.8, 2.5)  # incl. tails around the LOW_RUN limit
+TAIL_GAP_S = 0.15  # pause between owner and tail: inside one VAD turn
 RELAXES = (0.0, 0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2)  # verify threshold = threshold - relax
 VARIANTS = (("clean", False, False), ("bleed", True, False), ("bleed+narrowband", True, True))
 
@@ -65,8 +69,9 @@ class Seg:
     t1: float
     speaker: str
     track: str  # the track the speech is loud on
-    kind: str  # own | shared | imp_member | imp_stranger
+    kind: str  # own | shared | imp_member | imp_stranger | tail_member | tail_stranger
     audio: np.ndarray = field(repr=False, default=None)  # type: ignore[assignment]
+    tail_t0: float = 0.0  # tail_*: where the owner stops and the other voice starts
 
 
 @dataclass
@@ -76,8 +81,8 @@ class RoomConv:
     bleed: bool
 
 
-def _crop(x: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    n = int(rng.choice(LENGTHS) * SAMPLE_RATE)
+def _crop(x: np.ndarray, rng: np.random.Generator, lengths=None) -> np.ndarray:
+    n = int(rng.choice(LENGTHS if lengths is None else lengths) * SAMPLE_RATE)
     if len(x) > n:
         i = int(rng.integers(0, len(x) - n + 1))
         x = x[i : i + n]
@@ -108,6 +113,28 @@ def make_room_conversation(
             kind = "imp_stranger" if spk == stranger else "imp_member"
         elif r < P_IMPOSTOR + P_SHARED:
             track, spk, kind = MIC, str(rng.choice(shared)), "shared"
+        elif r < P_IMPOSTOR + P_SHARED + P_TAIL:
+            # the owner speaks, then someone else (stranger / other member, e.g. revoked) carries on
+            track = str(rng.choice(list(own)))
+            spk = own[track]
+            pool = [m for m in members if m != spk]
+            other = stranger if rng.random() < P_TAIL_STRANGER else str(rng.choice(pool))
+            if spk == prev:
+                continue
+            xo = _crop(test[spk][int(rng.integers(len(test[spk])))].load(), rng, TAIL_LENGTHS)
+            xt = _crop(
+                test[other][int(rng.integers(len(test[other])))].load(), rng, STRANGER_TAIL_LENGTHS
+            )
+            gap = np.zeros(int(TAIL_GAP_S * SAMPLE_RATE), np.float32)
+            x = np.concatenate([xo, gap, xt])
+            split = (pos + len(xo) + len(gap)) / SAMPLE_RATE
+            kind = "tail_stranger" if other == stranger else "tail_member"
+            segs.append(
+                Seg(pos / SAMPLE_RATE, (pos + len(x)) / SAMPLE_RATE, spk, track, kind, x, split)
+            )
+            pos += len(x) + int(rng.uniform(*pause) * SAMPLE_RATE)
+            prev = other
+            continue
         else:
             track = str(rng.choice(list(own)))
             spk, kind = own[track], "own"
@@ -204,6 +231,9 @@ def score(st: Stats, conv: RoomConv, recs, provider, claims: dict) -> None:
                         copies = [r for r in committed if r.source_id == tid]
                         dup = any(_covered((s.t0, s.t1), r) for r in copies)
                         _cell(st.dup, "verified" if claims[tid] else "shared", dup)
+        elif s.kind.startswith("tail"):
+            key = f"{s.kind} {'<1.1' if s.t1 - s.tail_t0 < 1.1 else '>=1.1'} s"
+            _cell(st.imp, key, any(_leaks((s.tail_t0, s.t1), r) for r in on))
         else:
             _cell(st.imp, s.kind, any(_leaks((s.t0, s.t1), r) for r in on))
 
@@ -283,26 +313,37 @@ def merge(a: Stats, b: Stats) -> Stats:
     return out
 
 
+def _tail(st: Stats, kind: str) -> list[int]:
+    v = [c for k, c in st.imp.items() if k.startswith(kind)]
+    return [sum(c[0] for c in v), sum(c[1] for c in v)]
+
+
 def render(emb_name, runs: dict[str, Stats], header: dict, wall_s: float, verify: float) -> str:
     L = [f"# Room benchmark: {emb_name}", ""]
     L += [f"- {k}: {v}" for k, v in header.items()] + [f"- wall time: {wall_s:.0f}s", ""]
     thr = threshold_for(emb_name)
     L += ["## Summary (verified tracks use the config verify threshold)", ""]
     L += [
-        "| variant | owner FR >= 1 s | impostor accept | bleed dup (verified / shared track) "
+        "| variant | owner FR >= 1 s | impostor accept | stranger-tail accept | member-tail accept "
+        "| bleed dup (verified / shared track) "
         "| attribution own / shared | commit p50 | commit p95 | queue wait p95 |",
-        "|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for name, st in runs.items():
         ge1 = [
             sum(v[0] for k, v in st.owner.items() if k >= 1),
             sum(v[1] for k, v in st.owner.items() if k >= 1),
         ]
-        imp = [sum(v[0] for v in st.imp.values()), sum(v[1] for v in st.imp.values())]
+        imp = [
+            sum(v[0] for k, v in st.imp.items() if not k.startswith("tail")),
+            sum(v[1] for k, v in st.imp.items() if not k.startswith("tail")),
+        ]
+
         d = st.dup
         dup = f"{pct(*d.get('verified', [0, 0]))} / {pct(*d.get('shared', [0, 0]))}"
         L.append(
-            f"| {name} | {pct(*ge1)} | {pct(*imp)} | {dup} | "
+            f"| {name} | {pct(*ge1)} | {pct(*imp)} | {pct(*_tail(st, 'tail_stranger'))} | "
+            f"{pct(*_tail(st, 'tail_member'))} | {dup} | "
             f"{pct(*st.attrib.get('own', [0, 0]))} / {pct(*st.attrib.get('shared', [0, 0]))} | "
             f"{ms(st.latencies, 50)} | {ms(st.latencies, 95)} | {ms(st.waits, 95)} |"
         )
@@ -337,7 +378,8 @@ def render(emb_name, runs: dict[str, Stats], header: dict, wall_s: float, verify
             L.append(f"| {label} | {pct(r, n)} |")
         L += [f"| all | {pct(*tot)} |", ""]
         L += [
-            "Impostor on a member's track, accepted (any audio in a committed turn): "
+            "Impostor on a member's track, accepted (any audio in a committed turn; tail_*: other "
+            "voice spliced after the owner in one turn, same rule on the tail part): "
             + ", ".join(f"{k} {pct(*v)}" for k, v in sorted(st.imp.items())),
             "",
         ]
@@ -392,10 +434,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default="reports")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
-        "--conversations", type=int, default=4, help="per variant (livekit: total, at least 5)"
+        "--conversations", type=int, default=12, help="per variant (livekit: total, at least 5)"
     )
     p.add_argument("--sweep-conversations", type=int, default=12, help="verify sweep (no stream)")
-    p.add_argument("--turns", type=int, default=12)
+    p.add_argument("--turns", type=int, default=16)
     p.add_argument("--speed", type=float, default=1.0, help="pacing factor; 1 = realtime")
     p.add_argument("--jobs", type=int, default=4, help="conversations streamed concurrently")
     p.add_argument("--verify", type=float, default=None, help="default: config value")
@@ -445,7 +487,8 @@ def main(argv: list[str] | None = None) -> int:
     header = {
         "dataset": f"LibriSpeech {a.subset}",
         "config": f"conversations={a.conversations}/variant turns={a.turns} seed={a.seed} "
-        f"speed={a.speed:g}x jobs={a.jobs} tracks=3 own + 1 shared (2 members) "
+        f"track_low_run={TRACK_LOW_RUN} p_tail={P_TAIL} speed={a.speed:g}x jobs={a.jobs} "
+        f"tracks=3 own + 1 shared (2 members) "
         f"sweep_conversations={a.sweep_conversations} enroll_utts={N_ENROLL_UTTS}"
         "(+4 narrowband) VAD=SileroVAD MockProvider",
     }
