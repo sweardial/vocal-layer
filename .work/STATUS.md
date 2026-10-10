@@ -1,8 +1,8 @@
 # Status
 
 ```
-Voice Room · 2026-10-09 19:41
-Phase: build · unit tests off · 42/51 done · est. API-equivalent cost $72.96
+Voice Room · 2026-10-09 20:23
+Phase: build · unit tests off · 43/52 done · est. API-equivalent cost $74.93
 ✅ T-001 Set up project skeleton and smoke runner
 ✅ T-002 Add audio utilities and synthetic speaker generator
 ✅ T-003 Define pluggable embedder interface with toy embedder
@@ -45,8 +45,8 @@ Phase: build · unit tests off · 42/51 done · est. API-equivalent cost $72.96
 ✅ T-039 Build multi-source room pipeline with serialized commits
 ✅ T-040 Add track-identity verification policy (verified and shared tracks)
 ✅ T-041 Suppress cross-talk bleed between co-located microphones
-🔨 T-042 Benchmark room isolation and attribution on LibriSpeech multi-track audio
-⬜ T-043 Define room transport interface with in-memory FakeRoom
+✅ T-042 Benchmark room isolation and attribution on LibriSpeech multi-track audio
+🔨 T-043 Define room transport interface with in-memory FakeRoom
 ⬜ T-044 Fetch a pinned local LiveKit server and prove an offline loopback
 ⬜ T-045 Implement LiveKit room transport against the local server
 ⬜ T-046 Add sessions and invites with membership-driven policy
@@ -54,11 +54,13 @@ Phase: build · unit tests off · 42/51 done · est. API-equivalent cost $72.96
 ⬜ T-048 Add CLI for sessions, join tokens, and the room agent
 ⬜ T-049 Measure end-to-end room latency through the local LiveKit server
 ⬜ T-050 Write multi-device room demo checklist and request human live test
+⬜ T-051 Add stranger-tail turns to the room bench and fix narrowband owner FR
 ```
 
 ## Recent commits
 
 ```
+261fd09 T-042: Benchmark room isolation and attribution on LibriSpeech multi-track audio
 dd6fee9 T-041: Suppress cross-talk bleed between co-located microphones
 d7344fb T-040: Add track-identity verification policy (verified and shared tracks)
 f4e012a T-039: Build multi-source room pipeline with serialized commits
@@ -68,5 +70,4 @@ fa3a4ed T-037: Free smoke-time headroom before M3 adds room smokes
 7e5ed39 T-036: Log which continuity rule fired in the live demo
 2bfc686 T-035: Reduce owner false-reject on real mic audio
 dd02e97 T-034: Make the AS-norm cohort file portable across machines
-f84d8cc T-033: Add sounddevice as a dependency and fix demo docs
 ```
